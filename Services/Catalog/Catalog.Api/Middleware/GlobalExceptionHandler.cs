@@ -49,8 +49,14 @@ public class GlobalExceptionHandler(
         problem.Status = status;
         problem.Title = title;
         problem.Instance = http.Request.Path;
-        // details only in Development; for 4xx the message is safe and useful for the client
+        // 4xx: short safe message for the client; internal details (500 message, exception type,
+        // stack trace) are shown only in Development
         problem.Detail = status < 500 || env.IsDevelopment() ? ex.Message : null;
+        if (env.IsDevelopment())
+        {
+            problem.Extensions["exceptionType"] = ex.GetType().FullName;
+            if (status >= 500) problem.Extensions["stackTrace"] = ex.StackTrace;
+        }
 
         http.Response.StatusCode = status;
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext

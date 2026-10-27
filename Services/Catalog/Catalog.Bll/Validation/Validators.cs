@@ -3,15 +3,15 @@ using FluentValidation;
 
 namespace Catalog.Bll.Validation;
 
-// FluentValidation holds rules that DataAnnotations can't express (cross-field, formats).
+// FluentValidation holds rules that DataAnnotations can't express (cross-field, formats, ranges).
+// Required/StringLength are NOT repeated here — they live on the DTOs as DataAnnotations.
 // Registered via AddValidatorsFromAssemblyContaining and called explicitly in controllers.
 
 public class CreateEventDtoValidator : AbstractValidator<CreateEventDto>
 {
     public CreateEventDtoValidator()
     {
-        RuleFor(x => x.Title).NotEmpty();
-        RuleFor(x => x.Slug).NotEmpty().Matches("^[a-z0-9-]+$")
+        RuleFor(x => x.Slug).Matches("^[a-z0-9-]+$")
             .WithMessage("Slug may contain only lowercase latin letters, digits and '-'");
         RuleFor(x => x.EndsAt).GreaterThan(x => x.StartsAt)
             .WithMessage("EndsAt must be later than StartsAt");
@@ -24,8 +24,7 @@ public class CreateTicketTypeDtoValidator : AbstractValidator<CreateTicketTypeDt
 {
     public CreateTicketTypeDtoValidator()
     {
-        RuleFor(x => x.Name).NotEmpty();
-        RuleFor(x => x.Code).NotEmpty().Matches("^[A-Z0-9-]+$")
+        RuleFor(x => x.Code).Matches("^[A-Z0-9-]+$")
             .WithMessage("Code may contain only uppercase latin letters, digits and '-'");
         RuleFor(x => x.Price).GreaterThan(0).PrecisionScale(18, 2, true);
         RuleFor(x => x.Capacity).GreaterThan(0).LessThanOrEqualTo(10000);
