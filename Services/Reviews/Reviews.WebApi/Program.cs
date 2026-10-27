@@ -1,22 +1,15 @@
 using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
-using Reviews.WebApi.ErrorHandling;
+using Reviews.WebApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// one DI extension method per layer
 builder.Services
-    .AddApplication()                             // MediatR + behaviors + validators
-    .AddInfrastructure(builder.Configuration);    // MongoDB, repositories, queries, indexes
-
-// Validation is done by FluentValidation in the MediatR pipeline,
-// so MVC must not reject null strings before the request reaches ValidationBehavior
-builder.Services.AddControllers(o => o.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true);
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    .AddApplication()                             // MediatR + behaviors + validators + AutoMapper
+    .AddInfrastructure(builder.Configuration)     // MongoDB, repositories, queries, indexes
+    .AddWebApi();                                 // controllers, Swagger, ProblemDetails
 
 var app = builder.Build();
 
