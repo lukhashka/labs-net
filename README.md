@@ -115,3 +115,46 @@ curl -i -H "Content-Type: application/json" -d '{"quantity":5000}' http://localh
 Serilog налаштовано в `appsettings.json` (рівні, sink-и Console + File `logs/catalog-*.log` у JSON).
 Властивості: `CorrelationId` (заголовок `X-Correlation-Id`), `UserId`, `RequestPath`, `Service`.
 SQL-команди EF Core (`Microsoft.EntityFrameworkCore.Database.Command`) пишуться на рівні Information.
+
+---
+
+## Reviews (Лаб. 04) — Clean Architecture + CQRS (MediatR) + MongoDB
+
+```
+Services/Reviews/
+├── Reviews.Domain/          BaseEntity (ObjectId, CreatedAt, UpdatedAt, Version), Review/Comment/Discussion,
+│                            ValueObject + Author, Rating, доменні винятки, IReviewRepository, IDiscussionRepository
+├── Reviews.Application/     Commands/ і Queries/ (MediatR), Common/Behaviors (Logging, Validation, Performance),
+│                            IReviewQueries, FluentValidation, AutoMapper-профіль, AddApplication()
+├── Reviews.Infrastructure/  MongoDbContext (IOptions), BsonClassMap + camelCase, репозиторії з optimistic
+│                            concurrency, ReviewQueries (aggregation + проєкції), індекси, IDataSeeder, AddInfrastructure()
+└── Reviews.WebApi/          контролери лише через ISender, GlobalExceptionHandler (ProblemDetails), Program.cs
+```
+
+Залежності: `Domain → нічого`, `Application → Domain`, `Infrastructure → Application, Domain`,
+`WebApi → Application, Infrastructure`. Domain посилається лише на `MongoDB.Bson` (тип ObjectId), без драйвера.
+
+### Запуск
+
+```bash
+docker run -d --name reviews-mongo -p 27017:27017 mongo:7
+dotnet run --project Services/Reviews/Reviews.WebApi --launch-profile http
+# Swagger: http://localhost:5102/swagger
+# індекси створюються автоматично на старті, seed — ідемпотентний (InsertManyAsync лише в порожню колекцію)
+mongosh ReviewsDb_Dev --eval "db.reviews.getIndexes()"
+```
+
+Налаштування — секція `MongoDb` в `appsettings.json` / `appsettings.Development.json`
+(override: `MongoDb__ConnectionString`).
+
+### Приклади запитів
+
+```bash
+curl "http://localhost:5102/api/reviews?eventId=15&page=1&pageSize=10"
+# 201 + Location з ObjectId
+curl -i -H "Content-Type: application/json" -d '{"eventId":1,"eventTitle":"Autumn concert","authorUserId":"u-1","authorName":"Bohdan","rating":5,"text":"Great!"}' http://localhost:5102/api/reviews
+# rating = 10 -> 400 ще до виклику обробника (видно в LoggingBehavior)
+curl -i -H "Content-Type: application/json" -d '{"eventId":1,"eventTitle":"x","authorUserId":"u-2","authorName":"A","rating":10,"text":"t"}' http://localhost:5102/api/reviews
+# той самий автор вдруге -> 400 (асинхронне правило з запитом до Mongo); застаріла Version у PUT -> 409
+# неіснуючий Id -> 404; некоректний ObjectId -> 400; Mongo недоступна -> 503
+```
