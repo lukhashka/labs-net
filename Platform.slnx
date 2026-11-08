@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Platform/">
+    <Project Path="Platform.Aggregator/Platform.Aggregator.csproj" />
+    <Project Path="Platform.ApiGateway/Platform.ApiGateway.csproj" />
+    <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+    <Project Path="Platform.ServiceDefaults/Platform.ServiceDefaults.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/Catalog/">
     <Project Path="Services/Catalog/Catalog.Api/Catalog.Api.csproj" />

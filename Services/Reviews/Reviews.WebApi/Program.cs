@@ -1,9 +1,16 @@
+using Platform.ServiceDefaults;
 using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using Reviews.WebApi;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();                    // logging, tracing, health checks, service discovery
+
+// Aspire passes ConnectionStrings:ReviewsDb, the service of Lab 04 reads the section MongoDb
+var reviewsDb = builder.Configuration.GetConnectionString("ReviewsDb");
+if (!string.IsNullOrEmpty(reviewsDb))
+    builder.Configuration["MongoDb:ConnectionString"] = reviewsDb;
 
 // one DI extension method per layer
 builder.Services
@@ -12,6 +19,8 @@ builder.Services
     .AddWebApi();                                 // controllers, Swagger, ProblemDetails
 
 var app = builder.Build();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.MapDefaultEndpoints();                       // /health and /alive
 
 app.UseExceptionHandler();
 

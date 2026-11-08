@@ -3,6 +3,7 @@ using Catalog.Bll.Dtos;
 using Catalog.Dal;
 using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
+using Microsoft.Extensions.Logging;
 
 namespace Catalog.Bll.Services;
 
@@ -17,7 +18,7 @@ public interface ITicketTypeService
     Task DeleteAsync(int id, CancellationToken ct = default);
 }
 
-public class TicketTypeService(IUnitOfWork uow, IMapper mapper) : ITicketTypeService
+public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ILogger<TicketTypeService> logger) : ITicketTypeService
 {
     public async Task<PagedResult<TicketTypeDto>> GetListAsync(TicketTypeQuery query, CancellationToken ct = default)
     {
@@ -49,6 +50,7 @@ public class TicketTypeService(IUnitOfWork uow, IMapper mapper) : ITicketTypeSer
         var ticketType = await GetEntityAsync(id, ct);
         ticketType.ChangePrice(price);
         await uow.SaveChangesAsync(ct);
+        logger.LogInformation("Ticket type {TicketTypeId} price changed to {Price}", id, price);
         return mapper.Map<TicketTypeDto>(ticketType);
     }
 

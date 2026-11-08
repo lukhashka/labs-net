@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 using Reviews.Domain.Entities;
 
 namespace Reviews.Infrastructure.Persistence;
@@ -11,7 +12,10 @@ public class MongoDbContext
     public MongoDbContext(IOptions<MongoDbSettings> options)
     {
         var settings = options.Value;
-        var client = new MongoClient(settings.ConnectionString);
+        // the driver reports commands to OpenTelemetry
+        var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
+        clientSettings.ClusterConfigurator = cb => cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+        var client = new MongoClient(clientSettings);
         Database = client.GetDatabase(settings.DatabaseName);
     }
 

@@ -3,17 +3,13 @@ using Orders.Bll.Mapping;
 using Orders.Bll.Services;
 using Orders.Dal;
 using Orders.Dal.Infrastructure;
-using Serilog;
+using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();                    // logging, tracing, health checks, service discovery
 
 var connectionString = builder.Configuration.GetConnectionString("OrdersDb")
     ?? throw new InvalidOperationException("Connection string 'OrdersDb' is missing");
-
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console());
 
 // Scoped: one UnitOfWork and one connection per HTTP request
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
@@ -33,13 +29,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.MapDefaultEndpoints();                       // /health and /alive
 
 // Schema, procedures and seed from Lab 01; seed can be switched off with Seeding:Enabled=false
 await app.Services.GetRequiredService<DatabaseBootstrapper>().EnsureCreatedAsync(
     app.Configuration.GetValue("Seeding:Enabled", !app.Environment.IsProduction()));
 
 app.UseExceptionHandler();
-app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {

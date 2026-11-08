@@ -16,6 +16,51 @@
 
 ---
 
+## Платформа (Лаб. 05) — Aspire, YARP, Aggregator
+
+```
+Platform.AppHost          оркестрація: SQL Server, MongoDB, сервіси, Aggregator, Gateway (без бізнес-логіки)
+Platform.ServiceDefaults  Serilog, OpenTelemetry, health checks, service discovery, CorrelationId
+Platform.ApiGateway       YARP: єдина точка входу на порту 5000
+Platform.Aggregator       композиція даних кількох сервісів, часткові відмови
+Services/Orders, Catalog, Reviews   мікросервіси з Лаб. 02–04
+```
+
+Порядок запуску задано ланцюжками `WaitFor`: БД → сервіси → Aggregator → Gateway.
+
+### Запуск
+
+Потрібні .NET 10 SDK і запущений Docker Desktop. Пароль SQL Server задається один раз, він не потрапляє в Git:
+
+```bash
+dotnet user-secrets set "Parameters:sql-password" "Your_strong_Pass1" --project Platform.AppHost
+```
+
+```bash
+dotnet run --project Platform.AppHost --launch-profile http
+```
+
+Посилання на Dashboard з токеном виводиться в консоль. Профіль `http` обрано, щоб Dashboard і OTLP працювали без довіреного dev-сертифіката.
+
+### Перевірка
+
+```bash
+curl -i http://localhost:5000/api/orders/1
+curl -i "http://localhost:5000/api/events?page=1"
+curl -i "http://localhost:5000/api/reviews?eventId=1"
+curl -i http://localhost:5000/api/aggregator/orders/1/full
+curl -i http://localhost:5000/api/aggregator/events/2/full
+```
+
+**Trace.** Вкладка Traces, запис `gateway: GET /api/aggregator/{**catch-all}`: Gateway → Aggregator → сервіси → SQL і MongoDB.
+
+**Логи за CorrelationId.** Взяти `X-Correlation-Id` з відповіді, у Structured logs додати фільтр `CorrelationId = <значення>`.
+
+**Часткова відповідь.** У Dashboard зупинити `reviews-api` і повторити запит до агрегатора: статус 200, дані замовлення й подій, `"warnings":["reviews-api is unavailable"]`.
+Якщо зупинити сервіс основних даних (`orders-api` для картки замовлення), відповідь буде 503 у форматі ProblemDetails.
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```
@@ -149,6 +194,29 @@ dotnet run --project Services/Orders/Orders.AppHost --launch-profile http
 `POST /api/orders/{id}/confirm` у межах однієї транзакції міняє статус (`usp_ConfirmOrder`) і списує квитки
 (`TicketTypeRepository.DecreaseStockAsync`). Рівень ізоляції — `READ COMMITTED`: він не тримає спільних блокувань до
 кінця транзакції, тому рідше дає взаємні блокування. Гонки закриті явно: `UPDLOCK` у процедурі й атомарний `UPDATE ... WHERE Stock >= @Quantity`.
+### Приклади запитів
+
+```bash
+curl http://localhost:5103/api/orders/1
+curl "http://localhost:5103/api/orders?customerId=1&page=1&pageSize=5"
+curl "http://localhost:5103/api/tickets?eventId=2"
+# створення: 201 + Location
+curl -i -H "Content-Type: application/json" -d '{"customerId":1,"attendeeName":"Test","attendeeEmail":"t@chnu.edu.ua","items":[{"ticketTypeId":5,"units":15}]}' http://localhost:5103/api/orders
+# підтвердження: 204; повторне: 409; неіснуюче: 404
+curl -i -X POST http://localhost:5103/api/orders/1/confirm
+curl -i -X POST http://localhost:5103/api/orders/1/confirm
+curl -i -X POST http://localhost:5103/api/orders/999/confirm
+# недопустимий перехід: 409
+curl -i -H "Content-Type: application/json" -d '{"status":"Shipped"}' http://localhost:5103/api/orders/3/status
+# ім'я з апострофом не ламає SQL
+curl -i -H "Content-Type: application/json" -d "{\"email\":\"m.obrien@chnu.edu.ua\",\"fullName\":\"Mary O'Brien\"}" http://localhost:5103/api/customers
+```
+
+**Демо відкату.** Створити два замовлення: A на 15 квитків типу 5, B на 1 квиток типу 4 і 15 типу 5 (на складі типу 5 їх 20).
+Підтвердити A, потім B. B поверне 409, його статус лишиться `Submitted`, а залишок типу 4 не зміниться, хоча цей квиток списувався першим.
+
+---
+
 ## Reviews (Лаб. 04) — Clean Architecture + CQRS (MediatR) + MongoDB
 
 ```
@@ -181,23 +249,6 @@ mongosh ReviewsDb_Dev --eval "db.reviews.getIndexes()"
 ### Приклади запитів
 
 ```bash
-curl http://localhost:5103/api/orders/1
-curl "http://localhost:5103/api/orders?customerId=1&page=1&pageSize=5"
-curl "http://localhost:5103/api/tickets?eventId=2"
-# створення: 201 + Location
-curl -i -H "Content-Type: application/json" -d '{"customerId":1,"attendeeName":"Test","attendeeEmail":"t@chnu.edu.ua","items":[{"ticketTypeId":5,"units":15}]}' http://localhost:5103/api/orders
-# підтвердження: 204; повторне: 409; неіснуюче: 404
-curl -i -X POST http://localhost:5103/api/orders/1/confirm
-curl -i -X POST http://localhost:5103/api/orders/1/confirm
-curl -i -X POST http://localhost:5103/api/orders/999/confirm
-# недопустимий перехід: 409
-curl -i -H "Content-Type: application/json" -d '{"status":"Shipped"}' http://localhost:5103/api/orders/3/status
-# ім'я з апострофом не ламає SQL
-curl -i -H "Content-Type: application/json" -d "{\"email\":\"m.obrien@chnu.edu.ua\",\"fullName\":\"Mary O'Brien\"}" http://localhost:5103/api/customers
-```
-
-**Демо відкату.** Створити два замовлення: A на 15 квитків типу 5, B на 1 квиток типу 4 і 15 типу 5 (на складі типу 5 їх 20).
-Підтвердити A, потім B. B поверне 409, його статус лишиться `Submitted`, а залишок типу 4 не зміниться, хоча цей квиток списувався першим.
 curl "http://localhost:5102/api/reviews?eventId=1&page=1&pageSize=10"
 # 201 + Location з ObjectId
 curl -i -H "Content-Type: application/json" -d '{"eventId":1,"eventTitle":"Autumn concert","authorUserId":"u-1","authorName":"Bohdan","rating":5,"text":"Great!"}' http://localhost:5102/api/reviews

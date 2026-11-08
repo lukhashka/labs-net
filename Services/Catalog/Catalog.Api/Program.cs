@@ -1,4 +1,5 @@
 using Catalog.Api.Middleware;
+using Platform.ServiceDefaults;
 using Catalog.Bll.Mapping;
 using Catalog.Bll.Services;
 using Catalog.Bll.Validation;
@@ -6,17 +7,9 @@ using Catalog.Dal;
 using Catalog.Dal.Seeding;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
-using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Serilog: config from appsettings.json (levels, sinks), SQL commands of EF Core on Information
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information)
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Service", "catalog-api"));
+builder.AddServiceDefaults();                    // logging, tracing, health checks, service discovery
 
 // DAL: connection string from appsettings, can be overridden by ConnectionStrings__CatalogDb
 builder.Services.AddDbContext<CatalogDbContext>(o =>
@@ -38,6 +31,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.MapDefaultEndpoints();                       // /health and /alive
 
 // migrations + idempotent seed; seed can be switched off (e.g. in Production) with Seeding:Enabled=false
 using (var scope = app.Services.CreateScope())
@@ -49,15 +44,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseExceptionHandler();
-app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging(o =>
-{
-    o.EnrichDiagnosticContext = (diag, http) =>
-    {
-        diag.Set("RequestPath", http.Request.Path);
-        diag.Set("UserId", http.User.Identity?.Name ?? "anonymous");
-    };
-});
 
 if (app.Environment.IsDevelopment())
 {

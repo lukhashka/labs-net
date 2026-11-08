@@ -4,6 +4,7 @@ using Catalog.Bll.Specifications;
 using Catalog.Dal;
 using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
+using Microsoft.Extensions.Logging;
 
 namespace Catalog.Bll.Services;
 
@@ -19,7 +20,7 @@ public interface IEventService
 }
 
 // Services work only through IUnitOfWork — no DbContext here
-public class EventService(IUnitOfWork uow, IMapper mapper) : IEventService
+public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService> logger) : IEventService
 {
     public async Task<PagedResult<EventDto>> GetListAsync(EventQuery query, CancellationToken ct = default)
     {
@@ -68,6 +69,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper) : IEventService
 
         await uow.Events.AddAsync(ev, ct);
         await uow.SaveChangesAsync(ct);                     // one SaveChanges per business operation
+        logger.LogInformation("Event {EventId} created, slug {Slug}", ev.Id, ev.Slug);
         return await GetByIdAsync(ev.Id, ct);
     }
 
@@ -76,6 +78,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper) : IEventService
         var ev = await uow.Events.GetByIdAsync(id, ct) ?? throw new EntityNotFoundException(nameof(Event), id);
         ev.Reschedule(input.StartsAt, input.EndsAt);
         await uow.SaveChangesAsync(ct);
+        logger.LogInformation("Event {EventId} rescheduled to {StartsAt}", id, input.StartsAt);
     }
 
     public async Task PublishAsync(int id, CancellationToken ct = default)
@@ -83,6 +86,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper) : IEventService
         var ev = await uow.Events.GetWithDetailsAsync(id, ct) ?? throw new EntityNotFoundException(nameof(Event), id);
         ev.Publish();
         await uow.SaveChangesAsync(ct);
+        logger.LogInformation("Event {EventId} published", id);
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
@@ -90,5 +94,6 @@ public class EventService(IUnitOfWork uow, IMapper mapper) : IEventService
         var ev = await uow.Events.GetByIdAsync(id, ct) ?? throw new EntityNotFoundException(nameof(Event), id);
         ev.SoftDelete();                                    // audit: IsDeleted instead of physical delete
         await uow.SaveChangesAsync(ct);
+        logger.LogInformation("Event {EventId} deleted", id);
     }
 }
