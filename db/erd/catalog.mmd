@@ -1,0 +1,48 @@
+erDiagram
+    Venues ||--o{ Events : "1:N"
+    Events ||--o| EventDetails : "1:1"
+    Events ||--o{ EventCategories : "1:N"
+    Categories ||--o{ EventCategories : "M:N через EventCategories"
+    Events ||--o{ TicketTypes : "1:N"
+
+    Venues {
+        int Id PK
+        nvarchar Name UK
+        nvarchar Address
+        int Capacity "CHECK > 0"
+    }
+    Events {
+        int Id PK
+        nvarchar Title
+        nvarchar Slug UK
+        datetime2 StartsAt
+        datetime2 EndsAt "CHECK > StartsAt"
+        nvarchar Status
+        int VenueId FK
+        bit IsDeleted
+        rowversion RowVersion
+    }
+    EventDetails {
+        int EventId PK,FK
+        nvarchar Description
+        nvarchar Organizer
+        int AgeLimit "CHECK 0..21"
+    }
+    Categories {
+        int Id PK
+        nvarchar Name UK
+    }
+    EventCategories {
+        int EventId PK,FK
+        int CategoryId PK,FK
+        datetime2 AddedAt "власне поле"
+    }
+    TicketTypes {
+        int Id PK
+        int EventId FK
+        nvarchar Name
+        nvarchar Code UK
+        decimal Price "CHECK > 0"
+        int Capacity
+        int AvailableStock "CHECK 0..Capacity"
+    }

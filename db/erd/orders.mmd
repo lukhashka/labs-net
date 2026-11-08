@@ -1,0 +1,72 @@
+erDiagram
+    Customers ||--o{ Orders : "1:N"
+    Orders ||--|| OrderDetails : "1:1"
+    Orders ||--o{ OrderItems : "1:N"
+    TicketTypes ||--o{ OrderItems : "M:N через OrderItems"
+    Orders ||--o{ OrderStatusHistory : "1:N"
+    Orders ||--o{ PaymentRecords : "1:N"
+    Orders ||--o{ Tickets : "1:N"
+    TicketTypes ||--o{ Tickets : "1:N"
+
+    Customers {
+        bigint Id PK
+        nvarchar Email UK
+        nvarchar FullName
+        nvarchar Phone
+        nvarchar ExternalUserId
+        bit IsDeleted
+        rowversion RowVersion
+    }
+    Orders {
+        bigint Id PK
+        bigint CustomerId FK
+        nvarchar Status "CHECK"
+        datetime2 OrderDate
+        decimal TotalAmount "CHECK >= 0"
+        bit IsDeleted
+        rowversion RowVersion
+    }
+    OrderDetails {
+        bigint OrderId PK,FK
+        nvarchar AttendeeName
+        nvarchar AttendeeEmail
+        nvarchar Comment
+    }
+    TicketTypes {
+        bigint Id PK "Id з CatalogDb"
+        bigint EventId "без FK"
+        nvarchar EventTitle "копія"
+        datetime2 EventStartsAt "копія"
+        nvarchar Name "копія"
+        decimal Price "CHECK > 0, копія"
+        int Stock "CHECK >= 0"
+    }
+    OrderItems {
+        bigint OrderId PK,FK
+        bigint TicketTypeId PK,FK
+        nvarchar EventTitle "знімок"
+        nvarchar TicketTypeName "знімок"
+        decimal UnitPrice "знімок"
+        int Units "CHECK > 0"
+    }
+    OrderStatusHistory {
+        bigint Id PK
+        bigint OrderId FK
+        nvarchar FromStatus
+        nvarchar ToStatus
+        datetime2 ChangedAt
+    }
+    PaymentRecords {
+        bigint Id PK
+        bigint OrderId FK
+        decimal Amount "CHECK > 0"
+        nvarchar Method
+        nvarchar ExternalRef UK
+    }
+    Tickets {
+        uniqueidentifier Id PK
+        bigint OrderId FK
+        bigint TicketTypeId FK
+        nvarchar HolderName
+        datetime2 CheckedInAt
+    }
