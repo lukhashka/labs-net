@@ -149,6 +149,34 @@ dotnet run --project Services/Orders/Orders.AppHost --launch-profile http
 `POST /api/orders/{id}/confirm` у межах однієї транзакції міняє статус (`usp_ConfirmOrder`) і списує квитки
 (`TicketTypeRepository.DecreaseStockAsync`). Рівень ізоляції — `READ COMMITTED`: він не тримає спільних блокувань до
 кінця транзакції, тому рідше дає взаємні блокування. Гонки закриті явно: `UPDLOCK` у процедурі й атомарний `UPDATE ... WHERE Stock >= @Quantity`.
+## Reviews (Лаб. 04) — Clean Architecture + CQRS (MediatR) + MongoDB
+
+```
+Services/Reviews/
+├── Reviews.Domain/          BaseEntity (ObjectId, CreatedAt, UpdatedAt, Version), Review/Comment/Discussion,
+│                            ValueObject + Author, Rating, доменні винятки, IReviewRepository, IDiscussionRepository
+├── Reviews.Application/     Commands/ і Queries/ (MediatR), Common/Behaviors (Logging, Validation, Performance),
+│                            IReviewQueries, FluentValidation, AutoMapper-профіль, AddApplication()
+├── Reviews.Infrastructure/  MongoDbContext (IOptions), BsonClassMap + camelCase, репозиторії з optimistic
+│                            concurrency, ReviewQueries (aggregation + проєкції), індекси, IDataSeeder, AddInfrastructure()
+└── Reviews.WebApi/          контролери лише через ISender, GlobalExceptionHandler (ProblemDetails), Program.cs
+```
+
+Залежності: `Domain → нічого`, `Application → Domain`, `Infrastructure → Application, Domain`,
+`WebApi → Application, Infrastructure`. Domain посилається лише на `MongoDB.Bson` (тип ObjectId), без драйвера.
+
+### Запуск
+
+```bash
+docker run -d --name reviews-mongo -p 27017:27017 mongo:7
+dotnet run --project Services/Reviews/Reviews.WebApi --launch-profile http
+# Swagger: http://localhost:5102/swagger
+# індекси створюються автоматично на старті, seed — ідемпотентний (InsertManyAsync лише в порожню колекцію)
+mongosh ReviewsDb_Dev --eval "db.reviews.getIndexes()"
+```
+
+Налаштування — секція `MongoDb` в `appsettings.json` / `appsettings.Development.json`
+(override: `MongoDb__ConnectionString`).
 
 ### Приклади запитів
 
@@ -170,3 +198,11 @@ curl -i -H "Content-Type: application/json" -d "{\"email\":\"m.obrien@chnu.edu.u
 
 **Демо відкату.** Створити два замовлення: A на 15 квитків типу 5, B на 1 квиток типу 4 і 15 типу 5 (на складі типу 5 їх 20).
 Підтвердити A, потім B. B поверне 409, його статус лишиться `Submitted`, а залишок типу 4 не зміниться, хоча цей квиток списувався першим.
+curl "http://localhost:5102/api/reviews?eventId=1&page=1&pageSize=10"
+# 201 + Location з ObjectId
+curl -i -H "Content-Type: application/json" -d '{"eventId":1,"eventTitle":"Autumn concert","authorUserId":"u-1","authorName":"Bohdan","rating":5,"text":"Great!"}' http://localhost:5102/api/reviews
+# rating = 10 -> 400 ще до виклику обробника (видно в LoggingBehavior)
+curl -i -H "Content-Type: application/json" -d '{"eventId":1,"eventTitle":"x","authorUserId":"u-2","authorName":"A","rating":10,"text":"t"}' http://localhost:5102/api/reviews
+# той самий автор вдруге -> 400 (асинхронне правило з запитом до Mongo); застаріла Version у PUT -> 409
+# неіснуючий Id -> 404; некоректний ObjectId -> 400; Mongo недоступна -> 503
+```
