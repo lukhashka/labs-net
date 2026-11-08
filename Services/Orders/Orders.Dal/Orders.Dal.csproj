@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.86" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Orders.Domain\Orders.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- The scripts of Lab 01 are the single source of the schema, the service applies them on startup -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\db\orders\schema.sql" LogicalName="schema.sql" />
+    <EmbeddedResource Include="..\..\..\db\orders\procedures.sql" LogicalName="procedures.sql" />
+    <EmbeddedResource Include="..\..\..\db\orders\seed.sql" LogicalName="seed.sql" />
+  </ItemGroup>
+
+</Project>

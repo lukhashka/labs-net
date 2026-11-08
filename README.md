@@ -115,3 +115,58 @@ curl -i -H "Content-Type: application/json" -d '{"quantity":5000}' http://localh
 Serilog налаштовано в `appsettings.json` (рівні, sink-и Console + File `logs/catalog-*.log` у JSON).
 Властивості: `CorrelationId` (заголовок `X-Correlation-Id`), `UserId`, `RequestPath`, `Service`.
 SQL-команди EF Core (`Microsoft.EntityFrameworkCore.Database.Command`) пишуться на рівні Information.
+
+---
+
+## Orders (Лаб. 02) — ADO.NET + Dapper
+
+```
+Services/Orders/
+├── Orders.Domain/   моделі таблиць OrdersDb, доменні винятки
+├── Orders.Dal/      IGenericRepository<T>, CustomerRepository (чистий ADO.NET),
+│                    BaseDapperRepository<T> → OrderRepository, TicketTypeRepository (Dapper), UnitOfWork
+├── Orders.Bll/      сервіси, DTO, профіль AutoMapper
+├── Orders.Api/      контролери, DomainExceptionHandler (ProblemDetails), Swagger, Serilog
+├── Orders.AppHost/  API + SQL Server у контейнері однією командою
+└── Orders.Tests/    xUnit + NSubstitute
+```
+
+Залежності: `Api → Bll → Dal`, `Domain` бачать `Dal` і `Bll`. SQL є лише в `Orders.Dal` (і в `db/orders/`).
+
+### Запуск
+
+Потрібні .NET 10 SDK і запущений Docker Desktop. Схема, процедури й тестові дані з `db/orders/` застосовуються на старті.
+
+```bash
+dotnet run --project Services/Orders/Orders.AppHost --launch-profile http
+# Dashboard: посилання з токеном є в консолі; Swagger: http://localhost:5103/swagger
+```
+
+Без Aspire сервіс бере рядок підключення з `appsettings.json` (LocalDB), його можна перевизначити змінною `ConnectionStrings__OrdersDb`.
+
+### Транзакції
+
+`POST /api/orders/{id}/confirm` у межах однієї транзакції міняє статус (`usp_ConfirmOrder`) і списує квитки
+(`TicketTypeRepository.DecreaseStockAsync`). Рівень ізоляції — `READ COMMITTED`: він не тримає спільних блокувань до
+кінця транзакції, тому рідше дає взаємні блокування. Гонки закриті явно: `UPDLOCK` у процедурі й атомарний `UPDATE ... WHERE Stock >= @Quantity`.
+
+### Приклади запитів
+
+```bash
+curl http://localhost:5103/api/orders/1
+curl "http://localhost:5103/api/orders?customerId=1&page=1&pageSize=5"
+curl "http://localhost:5103/api/tickets?eventId=2"
+# створення: 201 + Location
+curl -i -H "Content-Type: application/json" -d '{"customerId":1,"attendeeName":"Test","attendeeEmail":"t@chnu.edu.ua","items":[{"ticketTypeId":5,"units":15}]}' http://localhost:5103/api/orders
+# підтвердження: 204; повторне: 409; неіснуюче: 404
+curl -i -X POST http://localhost:5103/api/orders/1/confirm
+curl -i -X POST http://localhost:5103/api/orders/1/confirm
+curl -i -X POST http://localhost:5103/api/orders/999/confirm
+# недопустимий перехід: 409
+curl -i -H "Content-Type: application/json" -d '{"status":"Shipped"}' http://localhost:5103/api/orders/3/status
+# ім'я з апострофом не ламає SQL
+curl -i -H "Content-Type: application/json" -d "{\"email\":\"m.obrien@chnu.edu.ua\",\"fullName\":\"Mary O'Brien\"}" http://localhost:5103/api/customers
+```
+
+**Демо відкату.** Створити два замовлення: A на 15 квитків типу 5, B на 1 квиток типу 4 і 15 типу 5 (на складі типу 5 їх 20).
+Підтвердити A, потім B. B поверне 409, його статус лишиться `Submitted`, а залишок типу 4 не зміниться, хоча цей квиток списувався першим.
