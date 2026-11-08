@@ -1,5 +1,11 @@
 <Solution>
   <Folder Name="/Services/" />
+  <Folder Name="/Services/Catalog/">
+    <Project Path="Services/Catalog/Catalog.Api/Catalog.Api.csproj" />
+    <Project Path="Services/Catalog/Catalog.Bll/Catalog.Bll.csproj" />
+    <Project Path="Services/Catalog/Catalog.Dal/Catalog.Dal.csproj" />
+    <Project Path="Services/Catalog/Catalog.Domain/Catalog.Domain.csproj" />
+  </Folder>
   <Folder Name="/Services/Orders/">
     <Project Path="Services/Orders/Orders.Api/Orders.Api.csproj" />
     <Project Path="Services/Orders/Orders.AppHost/Orders.AppHost.csproj" />
