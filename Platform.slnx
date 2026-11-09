@@ -14,7 +14,6 @@
   </Folder>
   <Folder Name="/Services/Orders/">
     <Project Path="Services/Orders/Orders.Api/Orders.Api.csproj" />
-    <Project Path="Services/Orders/Orders.AppHost/Orders.AppHost.csproj" />
     <Project Path="Services/Orders/Orders.Bll/Orders.Bll.csproj" />
     <Project Path="Services/Orders/Orders.Dal/Orders.Dal.csproj" />
     <Project Path="Services/Orders/Orders.Domain/Orders.Domain.csproj" />

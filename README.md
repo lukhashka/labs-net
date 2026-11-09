@@ -16,6 +16,83 @@
 
 ---
 
+## Бази даних (Лаб. 01)
+
+CampusTix продає квитки на кампусні події ЧНУ. Організатори публікують події, студенти купують квитки
+й залишають відгуки. Система замінює гугл-форми та продаж на вході єдиним сервісом із контролем місць.
+
+Скрипти: `db/p1` (OrdersDb), `db/p2` (CatalogDb), `db/p3` (ReviewsDb, MongoDB). Агрегати, процедури й вибір ключів описано в [docs/database.md](docs/database.md).
+
+### Контексти
+
+| # | Контекст | БД | Технологія | Сутності |
+|---|---|---|---|---|
+| 1 | Замовлення | `OrdersDb` (SQL Server) | ADO.NET + Dapper | Customer, Order, OrderDetails, OrderItem, TicketType (копія), OrderStatusHistory, PaymentRecord, Ticket, ProcessedEvent |
+| 2 | Каталог | `CatalogDb` (SQL Server) | EF Core Code First | Event, EventDetail, Venue, Category, EventCategory, TicketType |
+| 3 | Відгуки | `ReviewsDb` (MongoDB) | Clean Architecture + CQRS | reviews, discussions, messages, eventRatings |
+
+Сутність належить одному контексту. Між базами є лише логічні посилання за Id, жодного `FOREIGN KEY`.
+
+### Політика дублювання
+
+| Поле | Де зберігається | Власник | Політика узгодженості |
+|---|---|---|---|
+| `OrderItems.EventTitle`, `TicketTypeName`, `UnitPrice` | OrdersDb | Event, TicketType (CatalogDb) | знімок на момент оформлення, не оновлюється ніколи |
+| `TicketTypes.Name`, `Price`, `EventTitle`, `EventStartsAt` | OrdersDb (копія) | Event, TicketType (CatalogDb) | оновлюється подіями з Каталогу (Лаб. 08) |
+| `TicketTypes.Stock` | OrdersDb | Замовлення | змінює лише сервіс Замовлень; початкове значення дорівнює `Capacity` |
+| `reviews.eventTitle`, `discussions.eventTitle` | ReviewsDb | Event (CatalogDb) | оновлюється подією `event.renamed` (Лаб. 08) |
+| `reviews.author.displayName` | ReviewsDb | користувач (Auth, Лаб. 09) | знімок на момент написання |
+
+### ERD
+
+**OrdersDb** ([джерело](docs/erd/orders.mmd))
+
+![ERD OrdersDb](docs/erd/orders.png)
+
+**CatalogDb** ([джерело](docs/erd/catalog.mmd))
+
+![ERD CatalogDb](docs/erd/catalog.png)
+
+### Розгортання з нуля
+
+Потрібен Docker Desktop. Команди виконуються з кореня репозиторію в Git Bash.
+
+#### SQL Server
+
+```bash
+export MSSQL_SA_PASSWORD='Your_strong_Pass1'
+docker run -d --name campustix-sql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$MSSQL_SA_PASSWORD" -p 11433:1433 mcr.microsoft.com/mssql/server:2022-latest
+sql() { MSYS_NO_PATHCONV=1 docker exec -e SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" campustix-sql /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -f 65001 -b "$@"; }
+docker cp db campustix-sql:/tmp/db
+
+# 1) створити бази
+sql -Q "IF DB_ID('OrdersDb') IS NULL CREATE DATABASE OrdersDb; IF DB_ID('CatalogDb') IS NULL CREATE DATABASE CatalogDb;"
+
+# 2) OrdersDb: схема, процедури, дані, перевірка
+sql -d OrdersDb -i /tmp/db/p1/schema.sql
+sql -d OrdersDb -i /tmp/db/p1/procedures.sql
+sql -d OrdersDb -i /tmp/db/p1/seed.sql
+sql -d OrdersDb -i /tmp/db/p1/verify.sql
+
+# 3) CatalogDb: схема, дані, перевірка
+sql -d CatalogDb -i /tmp/db/p2/schema.sql
+sql -d CatalogDb -i /tmp/db/p2/seed.sql
+sql -d CatalogDb -i /tmp/db/p2/verify.sql
+```
+
+Окремий логін застосунку з доступом лише до своєї БД створює [db/p1/security.sql](db/p1/security.sql).
+
+#### MongoDB
+
+```bash
+docker run -d --name campustix-mongo -p 27017:27017 mongo:8.0
+docker cp db/p3 campustix-mongo:/tmp/p3
+MSYS_NO_PATHCONV=1 docker exec campustix-mongo mongosh --quiet ReviewsDb /tmp/p3/collections.js
+MSYS_NO_PATHCONV=1 docker exec campustix-mongo mongosh --quiet ReviewsDb /tmp/p3/seed.js
+MSYS_NO_PATHCONV=1 docker exec campustix-mongo mongosh --quiet ReviewsDb /tmp/p3/queries.js
+```
+
+Усі скрипти ідемпотентні: повторний запуск не створює дублікатів.
 ## Платформа (Лаб. 05) — Aspire, YARP, Aggregator
 
 ```
@@ -208,9 +285,10 @@ Services/Orders/
 │                    BaseDapperRepository<T> → OrderRepository, TicketTypeRepository (Dapper), UnitOfWork
 ├── Orders.Bll/      сервіси, DTO, профіль AutoMapper
 ├── Orders.Api/      контролери, DomainExceptionHandler (ProblemDetails), Swagger, Serilog
-├── Orders.AppHost/  API + SQL Server у контейнері однією командою
 └── Orders.Tests/    xUnit + NSubstitute
 ```
+
+`Platform.AppHost` запускає API разом із SQL Server у контейнері однією командою.
 
 Залежності: `Api → Bll → Dal`, `Domain` бачать `Dal` і `Bll`. SQL є лише в `Orders.Dal` (і в `db/orders/`).
 
@@ -219,7 +297,7 @@ Services/Orders/
 Потрібні .NET 10 SDK і запущений Docker Desktop. Схема, процедури й тестові дані з `db/orders/` застосовуються на старті.
 
 ```bash
-dotnet run --project Services/Orders/Orders.AppHost --launch-profile http
+dotnet run --project Platform.AppHost --launch-profile http
 # Dashboard: посилання з токеном є в консолі; Swagger: http://localhost:5103/swagger
 ```
 
