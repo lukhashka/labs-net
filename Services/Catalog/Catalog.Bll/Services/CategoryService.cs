@@ -1,4 +1,5 @@
 using AutoMapper;
+using Catalog.Bll.Caching;
 using Catalog.Bll.Dtos;
 using Catalog.Dal;
 using Catalog.Domain.Entities;
@@ -13,10 +14,12 @@ public interface ICategoryService
     Task<IReadOnlyList<EventDto>> GetRecentlyAddedAsync(int id, int days, CancellationToken ct = default);
 }
 
-public class CategoryService(IUnitOfWork uow, IMapper mapper) : ICategoryService
+public class CategoryService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache) : ICategoryService
 {
     public async Task<IReadOnlyList<CategoryDto>> GetAllAsync(CancellationToken ct = default)
-        => mapper.Map<List<CategoryDto>>(await uow.Categories.GetAllAsync(ct));
+        => await cache.GetOrCreateAsync(CacheKeys.Categories,
+            async () => mapper.Map<List<CategoryDto>>(await uow.Categories.GetAllAsync(ct)),
+            CachePolicies.ReferenceData, ct);
 
     public async Task<CategoryWithEventsDto> GetWithEventsAsync(int id, CancellationToken ct = default)
     {

@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+option csharp_namespace = "Orders.Grpc";
+
+package orders;
+
+import "google/protobuf/timestamp.proto";
+
+// Read access to orders and ticket availability for internal services
+service OrdersService {
+  // Order with its items
+  rpc GetOrder (GetOrderRequest) returns (OrderReply);
+  // Ticket types of an event with the number of tickets left
+  rpc GetAvailability (GetAvailabilityRequest) returns (AvailabilityReply);
+}
+
+message GetOrderRequest {
+  int64 id = 1;
+}
+
+message GetAvailabilityRequest {
+  int64 event_id = 1;
+}
+
+message OrderItemReply {
+  int64 ticket_type_id = 1;
+  int64 event_id = 2;
+  string event_title = 3;
+  string ticket_type_name = 4;
+  double unit_price = 5;
+  int32 units = 6;
+}
+
+message OrderReply {
+  int64 id = 1;
+  int64 customer_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp order_date = 4;
+  double total_amount = 5;
+  repeated OrderItemReply items = 6;
+}
+
+message TicketAvailability {
+  int64 id = 1;
+  string name = 2;
+  double price = 3;
+  int32 stock = 4;
+}
+
+message AvailabilityReply {
+  repeated TicketAvailability tickets = 1;
+}

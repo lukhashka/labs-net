@@ -61,6 +61,42 @@ curl -i http://localhost:5000/api/aggregator/events/2/full
 
 ---
 
+## gRPC і кешування (Лаб. 06)
+
+**Кеш у Каталозі.** Cache-aside на двох рівнях: `IMemoryCache` (L1) → Redis (L2) → база. Код: `Services/Catalog/Catalog.Bll/Caching`.
+
+| Дані | Ключ | L1 | L2 |
+|---|---|---|---|
+| Картка події | `catalog:event:{id}` | 1 хв (sliding 30 с) | 10 хв |
+| Перша сторінка афіші | `catalog:events:first-page` | 30 с | 5 хв |
+| Категорії | `catalog:categories` | 5 хв | 1 год |
+| Агрегат (Aggregator) | `aggregator:order:{id}:full`, `aggregator:event:{id}:full` | немає | 30 с |
+
+Запис одразу видаляє пов'язані ключі. Якщо Redis недоступний, сервіс працює без L2, а пропущені інвалідації застосовує після відновлення.
+
+**gRPC.** Контракти лежать у `Protos/` кожного сервісу: `catalog.proto`, `orders.proto`, `reviews.proto`. Aggregator збирає клієнтів із цих самих файлів і викликає сервіси паралельно. Для зовнішніх клієнтів він лишається HTTP-ендпоінтом.
+
+HTTP/2 узгоджується через TLS, тому сервіси працюють у профілі `https`. Якщо dev-сертифікат не довірений, Aggregator у Development приймає лише сертифікат із OID ASP.NET Core; в інших середовищах діє звичайна перевірка.
+
+```bash
+# другий запит не має SQL-span у Traces
+curl http://localhost:5000/api/events/1
+curl http://localhost:5000/api/events/1
+# після зміни ціни картка свіжа
+curl -X PUT -H "Content-Type: application/json" -d '{"price":175}' http://localhost:5000/api/ticket-types/1/price
+curl http://localhost:5000/api/events/1
+# агрегат через gRPC
+curl -i http://localhost:5000/api/aggregator/orders/1/full
+```
+
+Запуск без кешів для порівняння HTTP і gRPC:
+
+```bash
+dotnet run --project Platform.AppHost --launch-profile http -- --Benchmark:CacheEnabled=false
+```
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```

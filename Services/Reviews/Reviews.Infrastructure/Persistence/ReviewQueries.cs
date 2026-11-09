@@ -67,6 +67,23 @@ public class ReviewQueries(MongoDbContext context) : IReviewQueries
         return new PagedResult<ReviewDto>(items, page, pageSize, total);
     }
 
+    public async Task<IReadOnlyList<EventRatingSummaryDto>> GetRatingSummaryAsync(IReadOnlyCollection<long> eventIds, CancellationToken ct)
+    {
+        var group = new BsonDocument("$group", new BsonDocument
+        {
+            { "_id", "$eventId" },
+            { "average", new BsonDocument("$avg", "$rating") },
+            { "count", new BsonDocument("$sum", 1) }
+        });
+
+        var docs = await _reviews.Aggregate()
+            .Match(Builders<Review>.Filter.In(r => r.EventId, eventIds))
+            .AppendStage<BsonDocument>(group)
+            .ToListAsync(ct);
+
+        return docs.Select(d => new EventRatingSummaryDto(d["_id"].ToInt64(), Math.Round(d["average"].ToDouble(), 2), d["count"].ToInt64())).ToList();
+    }
+
     private static ReviewDto ToDto(BsonDocument d) => new(
         d["_id"].AsObjectId.ToString(),
         d["eventId"].ToInt64(),

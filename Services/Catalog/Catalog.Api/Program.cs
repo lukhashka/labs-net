@@ -1,4 +1,7 @@
+using Catalog.Api.GrpcServices;
+using Catalog.Api.Infrastructure;
 using Catalog.Api.Middleware;
+using Catalog.Bll.Caching;
 using Platform.ServiceDefaults;
 using Catalog.Bll.Mapping;
 using Catalog.Bll.Services;
@@ -16,6 +19,26 @@ builder.Services.AddDbContext<CatalogDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("CatalogDb")));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
+// Cache: L1 in memory, L2 in Redis (without Aspire - in memory of the process)
+builder.Services.AddMemoryCache(o =>
+{
+    o.SizeLimit = 10_000;                            // counted in Size of entries, every entry has Size = 1
+    o.TrackStatistics = true;
+});
+if (!string.IsNullOrEmpty(builder.Configuration.GetConnectionString("redis")))
+    builder.AddRedisDistributedCache("redis", configureOptions: o =>
+    {
+        o.ConnectTimeout = 1000;
+        o.SyncTimeout = 1000;
+        o.AsyncTimeout = 1000;
+    });
+else
+    builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSingleton<CacheMetrics>();
+builder.Services.AddSingleton<ITwoLevelCache, TwoLevelCache>();
+builder.Services.AddHostedService<CacheWarmupService>();
+builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache");
+
 // BLL
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketTypeService, TicketTypeService>();
@@ -24,6 +47,7 @@ builder.Services.AddAutoMapper(cfg => cfg.AddProfile<CatalogProfile>());
 builder.Services.AddValidatorsFromAssemblyContaining<CreateEventDtoValidator>();
 
 // API
+builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -52,5 +76,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<CatalogGrpcService>();
 
 app.Run();

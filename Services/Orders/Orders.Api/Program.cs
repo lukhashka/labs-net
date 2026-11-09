@@ -1,4 +1,5 @@
 using Orders.Api.ErrorHandling;
+using Orders.Api.GrpcServices;
 using Orders.Bll.Mapping;
 using Orders.Bll.Services;
 using Orders.Dal;
@@ -21,6 +22,7 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ITicketTypeService, TicketTypeService>();
 builder.Services.AddAutoMapper(cfg => cfg.AddProfile<OrdersProfile>());
 
+builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
@@ -45,5 +47,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<OrdersGrpcService>();
 
 app.Run();

@@ -1,4 +1,5 @@
 using AutoMapper;
+using Catalog.Bll.Caching;
 using Catalog.Bll.Dtos;
 using Catalog.Bll.Specifications;
 using Catalog.Dal;
@@ -20,9 +21,18 @@ public interface IEventService
 }
 
 // Services work only through IUnitOfWork — no DbContext here
-public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService> logger) : IEventService
+public class EventService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache, ILogger<EventService> logger) : IEventService
 {
     public async Task<PagedResult<EventDto>> GetListAsync(EventQuery query, CancellationToken ct = default)
+    {
+        // Only the default first page ("poster") is read often enough to be worth caching
+        if (query == new EventQuery())
+            return await cache.GetOrCreateAsync(CacheKeys.EventsFirstPage, () => LoadListAsync(query, ct), CachePolicies.EventsFirstPage, ct);
+
+        return await LoadListAsync(query, ct);
+    }
+
+    private async Task<PagedResult<EventDto>> LoadListAsync(EventQuery query, CancellationToken ct)
     {
         var page = Paging.ClampPage(query.Page);
         var pageSize = Paging.ClampPageSize(query.PageSize);
@@ -33,12 +43,13 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService>
         return new PagedResult<EventDto>(mapper.Map<List<EventDto>>(items), total, page, pageSize);
     }
 
-    public async Task<EventDetailsDto> GetByIdAsync(int id, CancellationToken ct = default)
-    {
-        var ev = await uow.Events.GetWithDetailsAsync(id, ct)
-                 ?? throw new EntityNotFoundException(nameof(Event), id);
-        return mapper.Map<EventDetailsDto>(ev);
-    }
+    public Task<EventDetailsDto> GetByIdAsync(int id, CancellationToken ct = default)
+        => cache.GetOrCreateAsync(CacheKeys.Event(id), async () =>
+        {
+            var ev = await uow.Events.GetWithDetailsAsync(id, ct)
+                     ?? throw new EntityNotFoundException(nameof(Event), id);
+            return mapper.Map<EventDetailsDto>(ev);
+        }, CachePolicies.EventCard, ct);
 
     public async Task<IReadOnlyList<EventDto>> GetUpcomingByVenueAsync(int venueId, CancellationToken ct = default)
     {
@@ -70,6 +81,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService>
         await uow.Events.AddAsync(ev, ct);
         await uow.SaveChangesAsync(ct);                     // one SaveChanges per business operation
         logger.LogInformation("Event {EventId} created, slug {Slug}", ev.Id, ev.Slug);
+        await cache.RemoveAsync(CacheKeys.EventsFirstPage, "EventCreated", ct);
         return await GetByIdAsync(ev.Id, ct);
     }
 
@@ -79,6 +91,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService>
         ev.Reschedule(input.StartsAt, input.EndsAt);
         await uow.SaveChangesAsync(ct);
         logger.LogInformation("Event {EventId} rescheduled to {StartsAt}", id, input.StartsAt);
+        await InvalidateAsync(id, "EventRescheduled", ct);
     }
 
     public async Task PublishAsync(int id, CancellationToken ct = default)
@@ -87,6 +100,7 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService>
         ev.Publish();
         await uow.SaveChangesAsync(ct);
         logger.LogInformation("Event {EventId} published", id);
+        await InvalidateAsync(id, "EventPublished", ct);
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
@@ -95,5 +109,12 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ILogger<EventService>
         ev.SoftDelete();                                    // audit: IsDeleted instead of physical delete
         await uow.SaveChangesAsync(ct);
         logger.LogInformation("Event {EventId} deleted", id);
+        await InvalidateAsync(id, "EventDeleted", ct);
+    }
+
+    private async Task InvalidateAsync(int id, string reason, CancellationToken ct)
+    {
+        await cache.RemoveAsync(CacheKeys.Event(id), reason, ct);
+        await cache.RemoveAsync(CacheKeys.EventsFirstPage, reason, ct);
     }
 }

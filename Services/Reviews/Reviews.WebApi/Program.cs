@@ -2,6 +2,7 @@ using Platform.ServiceDefaults;
 using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
+using Reviews.WebApi.GrpcServices;
 using Reviews.WebApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,8 @@ builder.Services
     .AddApplication()                             // MediatR + behaviors + validators + AutoMapper
     .AddInfrastructure(builder.Configuration)     // MongoDB, repositories, queries, indexes
     .AddWebApi();                                 // controllers, Swagger, ProblemDetails
+
+builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
@@ -45,5 +48,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapControllers();
+app.MapGrpcService<ReviewsGrpcService>();
 
 app.Run();

@@ -37,3 +37,5 @@ public record DiscussionDto(
     bool IsClosed,
     DateTime CreatedAt,
     int Version);
+
+public record EventRatingSummaryDto(long EventId, double Average, long Count);

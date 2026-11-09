@@ -10,23 +10,33 @@ var catalogDb = sql.AddDatabase("CatalogDb");               // Lab 03
 var mongo = builder.AddMongoDB("mongo").WithDataVolume();
 var reviewsDb = mongo.AddDatabase("ReviewsDb");             // Lab 04
 
+var redis = builder.AddRedis("redis").WithDataVolume();
+
+// Benchmark:CacheEnabled=false switches caches off for a fair comparison of HTTP and gRPC
+var cacheEnabled = builder.Configuration["Benchmark:CacheEnabled"] ?? "true";
+
 // The resource name becomes the logical name for service discovery
-var orders = builder.AddProject<Projects.Orders_Api>("orders-api")
+// The https profile: gRPC needs HTTP/2, on Kestrel it is negotiated over TLS (ALPN). REST stays on the same service.
+var orders = builder.AddProject<Projects.Orders_Api>("orders-api", launchProfileName: "https")
     .WithReference(ordersDb).WaitFor(ordersDb)
-    .WithHttpHealthCheck("/health");
+    .WithHttpHealthCheck("/health", endpointName: "http");
 
-var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
+var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api", launchProfileName: "https")
     .WithReference(catalogDb).WaitFor(catalogDb)
-    .WithHttpHealthCheck("/health");
+    .WithReference(redis).WaitFor(redis)
+    .WithEnvironment("Caching__Enabled", cacheEnabled)
+    .WithHttpHealthCheck("/health", endpointName: "http");
 
-var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api")
+var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api", launchProfileName: "https")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
-    .WithHttpHealthCheck("/health");
+    .WithHttpHealthCheck("/health", endpointName: "http");
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithReference(orders).WithReference(catalog).WithReference(reviews)
     .WaitFor(orders).WaitFor(catalog).WaitFor(reviews)
-    .WithHttpHealthCheck("/health");
+    .WithReference(redis).WaitFor(redis)
+    .WithEnvironment("Caching__Enabled", cacheEnabled)
+    .WithHttpHealthCheck("/health", endpointName: "http");
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")

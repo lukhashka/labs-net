@@ -73,7 +73,8 @@ public static class Extensions
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
-                .AddRuntimeInstrumentation())
+                .AddRuntimeInstrumentation()
+                .AddMeter("Catalog.Cache", "Aggregator.Cache"))
             .WithTracing(tracing =>
             {
                 // 100 % in Development, a configurable share in Production; a child follows the decision of its parent

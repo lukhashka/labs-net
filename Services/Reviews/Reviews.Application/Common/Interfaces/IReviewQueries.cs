@@ -10,4 +10,6 @@ public interface IReviewQueries
 
     Task<PagedResult<ReviewDto>> GetListAsync(
         long? eventId, string? search, int page, int pageSize, CancellationToken ct);
+
+    Task<IReadOnlyList<EventRatingSummaryDto>> GetRatingSummaryAsync(IReadOnlyCollection<long> eventIds, CancellationToken ct);
 }

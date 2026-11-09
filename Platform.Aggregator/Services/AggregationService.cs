@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Grpc.Core;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Dtos;
 using Polly;
@@ -9,10 +10,23 @@ namespace Platform.Aggregator.Services;
 public class RequiredServiceUnavailableException(string service, Exception inner)
     : Exception($"{service} is unavailable", inner);
 
-public class AggregationService(OrdersClient orders, CatalogClient catalog, ReviewsClient reviews, ILogger<AggregationService> logger)
+public class AggregationService(OrdersClient orders, CatalogClient catalog, ReviewsClient reviews, AggregateCache cache, ILogger<AggregationService> logger)
 {
     // Order card: order (orders-api) + current event data (catalog-api) + ratings of these events (reviews-api)
     public async Task<FullOrderDto?> GetFullOrderAsync(long orderId, CancellationToken ct)
+    {
+        var key = $"aggregator:order:{orderId}:full";
+        var cached = await cache.GetAsync<FullOrderDto>(key, ct);       // BEFORE the parallel gRPC calls
+        if (cached is not null)
+            return cached;
+
+        var result = await BuildFullOrderAsync(orderId, ct);
+        if (result is not null && result.Warnings.Count == 0)           // a partial answer is not cached
+            await cache.SetAsync(key, result, ct);
+        return result;
+    }
+
+    private async Task<FullOrderDto?> BuildFullOrderAsync(long orderId, CancellationToken ct)
     {
         var order = await RequiredAsync(() => orders.GetOrderAsync(orderId, ct), "orders-api", ct);
         if (order is null)
@@ -36,6 +50,19 @@ public class AggregationService(OrdersClient orders, CatalogClient catalog, Revi
 
     // Event page: event (catalog-api) + available tickets (orders-api) + rating and latest reviews (reviews-api)
     public async Task<FullEventDto?> GetFullEventAsync(long eventId, CancellationToken ct)
+    {
+        var key = $"aggregator:event:{eventId}:full";
+        var cached = await cache.GetAsync<FullEventDto>(key, ct);
+        if (cached is not null)
+            return cached;
+
+        var result = await BuildFullEventAsync(eventId, ct);
+        if (result is not null && result.Warnings.Count == 0)
+            await cache.SetAsync(key, result, ct);
+        return result;
+    }
+
+    private async Task<FullEventDto?> BuildFullEventAsync(long eventId, CancellationToken ct)
     {
         var card = await RequiredAsync(() => catalog.GetEventAsync(eventId, ct), "catalog-api", ct);
         if (card is null)
@@ -89,8 +116,8 @@ public class AggregationService(OrdersClient orders, CatalogClient catalog, Revi
         }
     }
 
-    // ExecutionRejectedException: Polly gave up (open circuit breaker, timeout of the resilience pipeline).
+    // RpcException: the service is down or did not answer in time. ExecutionRejectedException: Polly gave up.
     // A cancellation requested by the client is not a failure of the service and goes further.
     private static bool IsUnavailable(Exception ex, CancellationToken ct)
-        => ex is HttpRequestException or TaskCanceledException or ExecutionRejectedException && !ct.IsCancellationRequested;
+        => ex is RpcException or HttpRequestException or TaskCanceledException or ExecutionRejectedException && !ct.IsCancellationRequested;
 }
