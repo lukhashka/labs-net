@@ -17,9 +17,9 @@
 
   <!-- The scripts of Lab 01 are the single source of the schema, the service applies them on startup -->
   <ItemGroup>
-    <EmbeddedResource Include="..\..\..\db\orders\schema.sql" LogicalName="schema.sql" />
-    <EmbeddedResource Include="..\..\..\db\orders\procedures.sql" LogicalName="procedures.sql" />
-    <EmbeddedResource Include="..\..\..\db\orders\seed.sql" LogicalName="seed.sql" />
+    <EmbeddedResource Include="..\..\..\db\p1\schema.sql" LogicalName="schema.sql" />
+    <EmbeddedResource Include="..\..\..\db\p1\procedures.sql" LogicalName="procedures.sql" />
+    <EmbeddedResource Include="..\..\..\db\p1\seed.sql" LogicalName="seed.sql" />
   </ItemGroup>
 
 </Project>
