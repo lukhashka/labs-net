@@ -207,9 +207,10 @@ Services/Orders/
 │                    BaseDapperRepository<T> → OrderRepository, TicketTypeRepository (Dapper), UnitOfWork
 ├── Orders.Bll/      сервіси, DTO, профіль AutoMapper
 ├── Orders.Api/      контролери, DomainExceptionHandler (ProblemDetails), Swagger, Serilog
-├── Orders.AppHost/  API + SQL Server у контейнері однією командою
 └── Orders.Tests/    xUnit + NSubstitute
 ```
+
+`Platform.AppHost` запускає API разом із SQL Server у контейнері однією командою.
 
 Залежності: `Api → Bll → Dal`, `Domain` бачать `Dal` і `Bll`. SQL є лише в `Orders.Dal` (і в `db/orders/`).
 
@@ -218,7 +219,7 @@ Services/Orders/
 Потрібні .NET 10 SDK і запущений Docker Desktop. Схема, процедури й тестові дані з `db/orders/` застосовуються на старті.
 
 ```bash
-dotnet run --project Services/Orders/Orders.AppHost --launch-profile http
+dotnet run --project Platform.AppHost --launch-profile http
 # Dashboard: посилання з токеном є в консолі; Swagger: http://localhost:5103/swagger
 ```
 
