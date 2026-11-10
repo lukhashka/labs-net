@@ -1,0 +1,45 @@
+﻿---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  serviceName: "redis"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: docker.io/library/redis:8.6
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+          args:
+            - '-c'
+            - 'redis-server --requirepass $REDIS_PASSWORD --save 60 1'
+          ports:
+            - containerPort: 6379
+          envFrom:
+            - configMapRef:
+                name: redis-env
+            - secretRef:
+                name: redis-protected
+          volumeMounts:
+            - name: platform-apphost-04e9402f01-redis-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: platform-apphost-04e9402f01-redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

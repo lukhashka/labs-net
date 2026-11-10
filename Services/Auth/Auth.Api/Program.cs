@@ -34,6 +34,7 @@ builder.Services.Configure<DataProtectionTokenProviderOptions>(o => o.TokenLifes
 
 // AddIdentity registers cookie schemes as default; this service is an API, so JWT becomes the default.
 // The scheme validates the tokens this service issues, with the same parameters as all other services.
+var tokenValidation = PlatformAuthentication.AuthServiceValidation(builder.Configuration);   // no key outside Development: no start
 builder.Services.AddAuthentication(o =>
     {
         o.DefaultScheme = PlatformAuthentication.AuthService;
@@ -44,7 +45,7 @@ builder.Services.AddAuthentication(o =>
     .AddJwtBearer(PlatformAuthentication.AuthService, o =>
     {
         o.MapInboundClaims = false;
-        o.TokenValidationParameters = PlatformAuthentication.AuthServiceValidation(builder.Configuration);
+        o.TokenValidationParameters = tokenValidation;
     });
 builder.Services.AddAuthorization();
 

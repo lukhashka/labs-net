@@ -33,6 +33,7 @@ public static class PlatformAuthentication
     {
         var configuration = builder.Configuration;
         var authServiceIssuer = configuration["Jwt:Issuer"] ?? "campustix-auth";
+        var authServiceValidation = AuthServiceValidation(configuration);   // at start: no key -> the service does not start
 
         return builder.Services
             .AddAuthentication(Scheme)
@@ -41,7 +42,7 @@ public static class PlatformAuthentication
             .AddJwtBearer(AuthService, o =>
             {
                 o.MapInboundClaims = false;
-                o.TokenValidationParameters = AuthServiceValidation(configuration);
+                o.TokenValidationParameters = authServiceValidation;
             })
             .AddJwtBearer(IdentityServer, o =>
             {
@@ -60,7 +61,14 @@ public static class PlatformAuthentication
         var jwt = configuration.GetSection("Jwt");
         var secret = jwt["SecretKey"];
         if (string.IsNullOrEmpty(secret))
-            secret = "development-only-key-set-Jwt__SecretKey-in-AppHost-0000000000";   // AppHost passes a generated one
+        {
+            // AppHost passes a generated key, Kubernetes the Secret platform-jwt (Lab 10). A known key outside
+            // Development would let anybody sign tokens, so the service refuses to start without one.
+            if (!string.Equals(configuration["ASPNETCORE_ENVIRONMENT"] ?? configuration["DOTNET_ENVIRONMENT"], "Development",
+                    StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Jwt:SecretKey is not configured");
+            secret = "development-only-key-set-Jwt__SecretKey-in-AppHost-0000000000";
+        }
 
         return new TokenValidationParameters
         {

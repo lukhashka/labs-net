@@ -1,0 +1,34 @@
+# Lab 10, Part 2: the YARP gateway from its own image (Platform.ApiGateway/Dockerfile)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: { app: gateway, app.kubernetes.io/part-of: campustix }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: gateway:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gateway-config               # addresses of the services (DNS names of the Services)
+            - secretRef:
+                name: gateway-secrets              # Jwt__SecretKey, created by kubectl (README.md)
+          livenessProbe:
+            httpGet: { path: /health/live, port: 8080 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 8080 }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }

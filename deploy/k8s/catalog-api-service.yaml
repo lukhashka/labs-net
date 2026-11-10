@@ -1,0 +1,14 @@
+# ClusterIP: a stable address inside the cluster. The name of the Service is the DNS name: http://catalog-api
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-api
+  labels: { app: catalog-api, app.kubernetes.io/part-of: campustix }
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog-api                               # the pods with this label get the traffic
+  ports:
+    - name: http
+      port: 80                                     # port of the Service
+      targetPort: 8080                             # port of the container

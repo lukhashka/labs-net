@@ -1,0 +1,4 @@
+# Lab 10: aspirate state (encrypted secrets), its temporary files and the intermediate manifest stay local
+aspirate-state.json
+manifest.json
+aspirate-output/**/.*.secrets

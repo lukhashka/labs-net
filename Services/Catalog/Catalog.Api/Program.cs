@@ -49,9 +49,19 @@ builder.Services.AddHostedService<CacheWarmupService>();
 builder.Services.AddSingleton<CatalogMetrics>();
 builder.Services.AddCatalogHealthChecks(builder.Configuration);
 
-// Lab 08: RabbitMQ connection, publisher and the background sender of the outbox
-builder.AddEventBus();
-builder.Services.AddHostedService<OutboxPublisher>();
+// Lab 08: RabbitMQ connection, publisher and the background sender of the outbox.
+// Lab 10: without a broker (a manual Kubernetes deployment of catalog-api with SQL Server only) the events stay
+// in the outbox table and are published when the service runs with ConnectionStrings:messaging again.
+if (!string.IsNullOrEmpty(builder.Configuration.GetConnectionString(EventBusExtensions.ConnectionName)))
+{
+    builder.AddEventBus();
+    builder.Services.AddHostedService<OutboxPublisher>();
+}
+else
+{
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddSingleton<ICorrelationIdAccessor, HttpCorrelationIdAccessor>();
+}
 
 // Lab 09: tokens of the Auth Service, IdentityServer (audience products_api) and Keycloak (audience products-api).
 // The service validates every token locally and checks the permission of the endpoint itself.

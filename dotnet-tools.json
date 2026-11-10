@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "aspirate": {
+      "version": "9.1.0",
+      "commands": [
+        "aspirate"
+      ],
+      "rollForward": false
+    }
+  }
+}

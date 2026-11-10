@@ -1,0 +1,36 @@
+﻿---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  labels:
+    app: payments-api
+spec:
+  minReadySeconds: 60
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: payments-api
+    spec:
+      containers:
+      - name: payments-api
+        image: payments-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: https
+          containerPort: 8443
+        envFrom:
+        - secretRef:
+            name: platform-jwt
+            optional: true
+        - configMapRef:
+            name: payments-api-env
+      terminationGracePeriodSeconds: 180

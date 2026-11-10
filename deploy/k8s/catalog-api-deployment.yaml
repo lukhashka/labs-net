@@ -1,0 +1,43 @@
+# Lab 10, Part 2: catalog-api from its own image (Services/Catalog/Catalog.Api/Dockerfile).
+# The Deployment keeps 2 replicas running: a deleted pod is replaced at once.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-api
+  labels: { app: catalog-api, app.kubernetes.io/part-of: campustix }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: catalog-api }
+  template:
+    metadata:
+      labels: { app: catalog-api }
+    spec:
+      containers:
+        - name: catalog-api
+          image: catalog-api:v1
+          imagePullPolicy: IfNotPresent            # the image is built locally, Docker Desktop shares it with the cluster
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: catalog-config               # open settings
+            - secretRef:
+                name: catalog-secrets              # ConnectionStrings__CatalogDb, created by kubectl (README.md)
+            - secretRef:
+                name: platform-jwt                 # Jwt__SecretKey of Lab 09
+          # Probes use the endpoints of Lab 07, they are mapped in every environment
+          startupProbe:                            # migrations and seed on the first start take time
+            httpGet: { path: /health/live, port: 8080 }
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:                           # failure -> the container is restarted
+            httpGet: { path: /health/live, port: 8080 }
+            periodSeconds: 10
+          readinessProbe:                          # failure -> the pod is taken out of the Service, not restarted
+            httpGet: { path: /health/ready, port: 8080 }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }

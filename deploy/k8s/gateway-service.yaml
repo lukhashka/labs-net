@@ -1,0 +1,14 @@
+# Inside the cluster: http://gateway; from the PC: kubectl port-forward service/gateway 8080:80
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: { app: gateway, app.kubernetes.io/part-of: campustix }
+spec:
+  type: ClusterIP
+  selector:
+    app: gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

@@ -1,0 +1,16 @@
+﻿resources:
+- statefulset.yaml
+- service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+- name: redis-env
+  literals:
+
+
+secretGenerator:
+- name: redis-protected
+  envs:
+  - .redis.protected.secrets

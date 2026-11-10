@@ -416,6 +416,52 @@ Keycloak запускається через Aspire (`AddKeycloak("keycloak", 80
 
 ---
 
+## Kubernetes (Лаб. 10)
+
+Два способи розгортання: маніфести всієї платформи, згенеровані Aspir8 (aspirate) з AppHost, і власні маніфести для `catalog-api` і `gateway` у [deploy/k8s](deploy/k8s/README.md).
+
+### Частина 1. Aspir8
+
+aspirate 9.1.0 встановлено як локальний інструмент репозиторію (`dotnet-tools.json`, `dotnet tool restore`). Генерацію запускає скрипт `Platform.AppHost/aspirate-generate.ps1`, результат лежить у `Platform.AppHost/aspirate-output`: 8 Deployment для проєктів, 5 StatefulSet (SQL Server, MongoDB, Redis, RabbitMQ, Keycloak), 13 Service, 13 ConfigMap і 11 Secret.
+
+```bash
+dotnet tool restore
+cd Platform.AppHost
+./aspirate-generate.ps1 -Build          # образи проєктів + маніфести
+kubectl create secret generic platform-jwt --from-literal=Jwt__SecretKey="$(openssl rand -hex 32)"
+dotnet aspirate apply                   # або kubectl apply -k ./aspirate-output
+kubectl get pods,services
+kubectl port-forward service/gateway 8080:8080
+dotnet aspirate destroy                 # перед частиною 2
+```
+
+Що довелося врахувати:
+
+- **.NET 9.** aspirate 9.1 зібраний під .NET 9, а на ПК лише .NET 10, тому скрипт ставить `DOTNET_ROLL_FORWARD=Major`.
+- **Окремі змінні з паролями.** Aspire 13 передає сервісам частини підключення (`*_HOST`, `*_PASSWORD`, `*_URI`), і aspirate клав би паролі в ConfigMap. `WithPlatformReferences()` в AppHost (`WithReferenceEnvironment`) лишає лише `ConnectionStrings__*` і `services__*`.
+- **Паролі контейнерів.** Їх зроблено явними секретними параметрами з тими самими іменами, що згенерував Aspire, тож локальні томи далі працюють. Для MongoDB, Redis, RabbitMQ і Keycloak aspirate однаково пише пароль у ConfigMap. Скрипт переносить ці значення в локальні файли `.<ресурс>.protected.secrets` (є в `.gitignore`), додає `secretGenerator` і `secretRef` та перевіряє, що в `kustomization.yaml` не лишилося жодного пароля.
+- **Ключ JWT.** У режимі публікації AppHost не передає ключ JWT (`IsRunMode`), а кожен Deployment отримує його з Secret `platform-jwt`, який створює `kubectl`. Без ключа сервіс поза Development не стартує, тому відомого запасного ключа в Production немає.
+- **Що не потрапляє в git.** Рядки підключення aspirate тримає зашифрованими в `aspirate-state.json`, а під час `apply` записує їх у `.secrets`. Обидва лишаються поза git.
+
+### Частина 2–3. Ручні маніфести
+
+Багатоетапні `Services/Catalog/Catalog.Api/Dockerfile` і `Platform.ApiGateway/Dockerfile` працюють так: restore на окремому шарі після копіювання `.csproj`, build і publish в образі SDK, а у фінальний образ `aspnet:10.0` потрапляє лише результат публікації (порт 8080, користувач без root).
+
+Deployment має 2 репліки, `imagePullPolicy: IfNotPresent`, liveness `/health/live` і readiness `/health/ready` з Лаб. 07. Service типу ClusterIP переводить порт 80 на 8080. ConfigMap `gateway-config` задає адреси `services__catalog-api__http__0: http://catalog-api` тощо, тому код Gateway не змінюється. Secrets створюються командами `kubectl create secret` (deploy/k8s/README.md) і підключаються через `envFrom`.
+
+Catalog запускається й без RabbitMQ: тоді події лишаються в outbox і будуть опубліковані, коли брокер з'явиться. Це потрібно для ручного розгортання лише з SQL Server.
+
+| | aspirate | вручну |
+|---|---|---|
+| Ресурси | уся платформа з AppHost | лише `catalog-api`, `gateway`, `catalog-sql` |
+| Конфігурація | ConfigMap `<ресурс>-env` з усіма змінними Aspire | лише потрібні ключі |
+| Секрети | зашифрований state, `.secrets` під час apply | `kubectl create secret` |
+| Probes | немає | startup, liveness, readiness |
+| Репліки, ресурси | 1 репліка, без лімітів | 2 репліки, requests і limits |
+| Бази | StatefulSet з volumeClaimTemplates | Deployment з `emptyDir` (демо) |
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```

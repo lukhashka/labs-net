@@ -1,0 +1,38 @@
+﻿---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  labels:
+    app: orders-api
+spec:
+  minReadySeconds: 60
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: orders-api
+    spec:
+      containers:
+      - name: orders-api
+        image: orders-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: https
+          containerPort: 8443
+        envFrom:
+        - secretRef:
+            name: platform-jwt
+            optional: true
+        - configMapRef:
+            name: orders-api-env
+        - secretRef:
+            name: orders-api-secrets
+      terminationGracePeriodSeconds: 180

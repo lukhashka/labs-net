@@ -1,0 +1,26 @@
+# Lab 10, Part 3: open settings. A key "services__catalog-api__http__0" is the configuration key
+# services:catalog-api:http:0 of .NET - the same format Aspire used for service discovery (Lab 05),
+# so the code of the gateway does not change. The values are DNS names of the Services in this namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  labels: { app.kubernetes.io/part-of: campustix }
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  services__catalog-api__http__0: "http://catalog-api"
+  services__orders-api__http__0: "http://orders-api"
+  services__reviews-api__http__0: "http://reviews-api"
+  services__aggregator__http__0: "http://aggregator"
+  services__auth-api__http__0: "http://auth-api"
+  services__payments-api__http__0: "http://payments-api"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalog-config
+  labels: { app.kubernetes.io/part-of: campustix }
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  # demo data of Lab 03 in an empty database; in Production the seed is off by default
+  Seeding__Enabled: "true"

@@ -1,0 +1,14 @@
+# Build outputs and local files never go into the build context of the images
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+**/logs/
+**/diagnostics/
+.git/
+Platform.AppHost/aspirate-output/
+Platform.AppHost/aspirate-state.json
+infra/
+deploy/
+db/
+docs/

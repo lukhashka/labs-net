@@ -1,0 +1,48 @@
+# The database of catalog-api for the manual deployment (in Part 1 aspirate creates its own "sql").
+# Demo only: emptyDir loses the data with the pod; a real database uses a StatefulSet with a PersistentVolumeClaim.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-sql
+  labels: { app: catalog-sql, app.kubernetes.io/part-of: campustix }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: catalog-sql }
+  template:
+    metadata:
+      labels: { app: catalog-sql }
+    spec:
+      containers:
+        - name: sql
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1433
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: catalog-sql-secrets, key: MSSQL_SA_PASSWORD }
+          resources:
+            requests: { memory: 1Gi }
+            limits: { memory: 2Gi }
+          volumeMounts:
+            - { name: data, mountPath: /var/opt/mssql }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-sql
+  labels: { app: catalog-sql, app.kubernetes.io/part-of: campustix }
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog-sql
+  ports:
+    - port: 1433
+      targetPort: 1433
