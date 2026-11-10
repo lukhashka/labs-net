@@ -82,6 +82,27 @@ public sealed class CustomerRepository(SqlConnection connection, Func<SqlTransac
         return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    // Lab 09: Customers.ExternalUserId is "sub" of the user in the identity provider
+    public async Task<long?> GetIdByExternalUserAsync(string externalUserId, CancellationToken ct = default)
+    {
+        await EnsureOpenAsync(ct);
+        await using var command = new SqlCommand(
+            "SELECT Id FROM dbo.Customers WHERE ExternalUserId = @ExternalUserId AND IsDeleted = 0", Connection, Transaction);
+        command.Parameters.Add("@ExternalUserId", SqlDbType.NVarChar, 100).Value = externalUserId;
+        return await command.ExecuteScalarAsync(ct) is long id ? id : null;
+    }
+
+    public async Task LinkExternalUserAsync(long id, string externalUserId, CancellationToken ct = default)
+    {
+        await EnsureOpenAsync(ct);
+        await using var command = new SqlCommand(
+            "UPDATE dbo.Customers SET ExternalUserId = @ExternalUserId, UpdatedAt = SYSUTCDATETIME() WHERE Id = @Id",
+            Connection, Transaction);
+        command.Parameters.Add("@Id", SqlDbType.BigInt).Value = id;
+        command.Parameters.Add("@ExternalUserId", SqlDbType.NVarChar, 100).Value = externalUserId;
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     private static Customer Map(SqlDataReader reader) => new()
     {
         Id = reader.GetInt64(0),

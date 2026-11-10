@@ -14,6 +14,7 @@ namespace Reviews.WebApi.Controllers;
 // Thin controller: no logic, only sends commands/queries to MediatR.
 // Errors (400/404/409/503) are converted by GlobalExceptionHandler.
 [ApiController]
+[Microsoft.AspNetCore.Authorization.Authorize]   // Lab 09: any valid token of the platform
 [Route("api/reviews")]
 public class ReviewsController(ISender mediator, ReviewMetrics metrics) : ControllerBase
 {
@@ -42,6 +43,14 @@ public class ReviewsController(ISender mediator, ReviewMetrics metrics) : Contro
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<string>> Create(CreateReviewCommand command, CancellationToken ct)
     {
+        // the author is taken from the token, the body cannot write a review in the name of somebody else
+        if (User.FindFirst("sub")?.Value is { } userId)
+            command = command with
+            {
+                AuthorUserId = userId,
+                AuthorName = User.FindFirst("name")?.Value ?? User.FindFirst("preferred_username")?.Value
+                             ?? User.FindFirst("unique_name")?.Value ?? command.AuthorName
+            };
         var id = await metrics.MeasureAsync("create-review", () => mediator.Send(command, ct));
         metrics.ReviewCreated(command.Rating);
         return CreatedAtAction(nameof(GetById), new { id }, new { id });

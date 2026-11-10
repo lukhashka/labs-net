@@ -9,6 +9,7 @@ using Grpc.Core;
 namespace Catalog.Api.GrpcServices;
 
 // Adapter over the BLL, like a controller. IEventService is the same one REST uses, so the cache works for both protocols.
+[Microsoft.AspNetCore.Authorization.Authorize(Policy = "products.read")]   // Lab 09: Client Credentials of the Aggregator
 public class CatalogGrpcService(IEventService events, ITicketTypeService ticketTypes) : CatalogService.CatalogServiceBase
 {
     public override async Task<EventReply> GetEvent(GetEventRequest request, ServerCallContext context)

@@ -5,6 +5,7 @@ using Platform.Aggregator.Services;
 namespace Platform.Aggregator.Controllers;
 
 [ApiController]
+[Microsoft.AspNetCore.Authorization.Authorize]   // Lab 09: a valid user token
 [Route("api/aggregator")]
 [Produces("application/json")]
 public class AggregatorController(AggregationService aggregation) : ControllerBase

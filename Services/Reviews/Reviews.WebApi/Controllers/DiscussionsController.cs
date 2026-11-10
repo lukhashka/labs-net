@@ -7,6 +7,7 @@ using Reviews.Application.Discussions.Queries.GetDiscussionById;
 namespace Reviews.WebApi.Controllers;
 
 [ApiController]
+[Microsoft.AspNetCore.Authorization.Authorize]   // Lab 09: any valid token of the platform
 [Route("api/discussions")]
 public class DiscussionsController(ISender mediator) : ControllerBase
 {

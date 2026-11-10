@@ -327,6 +327,95 @@ Management UI відкривається з Aspire Dashboard (ресурс `mess
 
 ---
 
+## Аутентифікація та авторизація (Лаб. 09)
+
+Платформа приймає токени трьох провайдерів. Кожен сервіс перевіряє токен локально ключами його видавця й сам вирішує, чи дозволена дія. До провайдера на кожен запит сервіс не звертається.
+
+| Провайдер | Проєкт | Токен | Як сервіс перевіряє |
+|---|---|---|---|
+| Auth Service (частина 1) | `Services/Auth/Auth.Api` | HS256, `iss = campustix-auth`, ролі в claim `role` | спільний секрет `jwt-secret` (параметр AppHost) |
+| Duende IdentityServer (частина 2) | `Platform.IdentityServer` | RS256, `aud` = ApiResource, `scope` | Authority = `http://localhost:5010`, ключі з discovery |
+| Keycloak (частина 3) | AppHost + `infra/keycloak` | realm `DevRealmDrivers`, RPT з `authorization.permissions` | `AddKeycloakJwtBearer`, ключі realm |
+
+Схема за замовчуванням `Bearer` дивиться лише на `iss` і передає токен відповідному обробнику (`Platform.ServiceDefaults/Authentication`). Кожен ендпоінт має `[RequirePermission("orders:read")]`. Звідки беруться permissions:
+
+- **Keycloak.** Зі scopes у `authorization.permissions` (RPT).
+- **IdentityServer.** Зі scopes: `orders.read` → `orders:read`; `orders.write` → create, update, delete, approve. Те саме для `products`.
+- **Auth Service.** З ролей: `Admin` отримує все, `User` — `orders:read`, `orders:create` і `products:read`.
+
+gRPC-методи для Aggregator мають scope-політики (`[Authorize(Policy = "orders.read")]`).
+
+Gateway перевіряє токен до проксування (політика маршруту `default`). `/auth/**` пропускає анонімно, `/users/**` і `/api/payments/**` спрямовує в Auth Service і Payments. Заголовок `Authorization` йде далі без змін, а `X-User-Id` Gateway ставить сам з перевіреного `sub` і прибирає значення від клієнта.
+
+### Частина 1. Auth Service
+
+ASP.NET Identity на окремій базі `IdentityDb`: пароль від 8 символів з цифрою, великою літерою й символом; lockout після 5 спроб на 15 хв. Access token живе 15 хв (claims `sub`, `unique_name`, `email`, `role`). Refresh token живе 7 днів: у базі лише його SHA-256 разом із датами, відкликанням і `ReplacedByTokenId`, а клієнт отримує його в HttpOnly cookie (`SameSite=Strict`, `Path=/auth`). Під час ротації старий токен відкликається. Повторне використання відкликаного токена відкликає всі токени користувача.
+
+Ендпоінти: `register`, `login`, `refresh-token`, `revoke-token`, `logout`, `verify-email`, `resend-verification`, `forgot-password`, `reset-password`, `change-password` у `/auth`, а також `/users` з ролями (таблиця 2 методички). Листи в Development не надсилаються: `GET /auth/dev/mailbox?email=...` показує їх. Адміністратор `admin` створюється з `appsettings.Development.json`.
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{"userName":"admin","password":"Admin123!dev"}' http://localhost:5000/auth/login
+curl -H "Authorization: Bearer <accessToken>" http://localhost:5000/api/orders
+```
+
+| Сценарій (через Gateway) | Результат |
+|---|---|
+| Запит без токена | 401 |
+| Реєстрація / дубль / слабкий пароль | 201 / 409 / 400 |
+| Login до підтвердження email | 403 |
+| verify-email / той самий токен удруге | 204 / 400 |
+| Login | 200; cookie `httponly; samesite=strict; path=/auth`; claims `sub`, `unique_name`, `role`; життя 15 хв |
+| User: `GET /api/orders`, `POST /api/orders` з чужим `customerId` | бачить лише свої замовлення; замовлення створено на його профіль |
+| User: чуже замовлення, DELETE, payments, `/users`, зміна ціни | 403 |
+| User: свій `/users/{id}`, `GET /api/events/1` | 200 |
+| Refresh / повтор старого токена / наступний refresh | 200 / 401 / 401 (усі токени відкликано) |
+| Скидання пароля / той самий токен удруге / вхід зі старим паролем | 204 / 400 / 401 |
+| Admin: `/users`, `POST /api/payments/process`, призначення ролі | 200 / 201 / 204 |
+| Admin: агрегат через Gateway | 200, Aggregator ходить у сервіси з токеном Client Credentials |
+
+### Частина 2. Duende IdentityServer
+
+EF-сховища конфігурації та операційних даних і ASP.NET Identity в окремій базі `IdentityServerDb`, міграції трьох контекстів (`Data/Migrations`) і Quickstart UI (`Pages/`). Бази Identity займають той самий контейнер SQL Server, що й бізнес-бази, щоб заощадити пам'ять ПК, але це окремі бази.
+
+| Що | Значення |
+|---|---|
+| ApiScopes | `orders.read`, `orders.write`, `products.read`, `products.write`, `reviews.read` |
+| ApiResources | `orders_api`, `products_api`, `reviews_api`, `payments_api` (стають `aud`) |
+| `postman` | Authorization Code + PKCE, секрет, refresh token |
+| `aggregator_service` | Client Credentials, `orders.read products.read reviews.read` |
+| `swagger` | public client, PKCE обов'язковий, без секрету |
+
+| Перевірка | Результат |
+|---|---|
+| Client Credentials | токен без `sub`, `aud = [orders_api, products_api]`; хибний секрет дає `invalid_client` |
+| Authorization Code (alice) | login → code → token з `sub`; хибний `code_verifier` і повтор коду дають `invalid_grant` |
+| Токен з `aud = orders_api` | 200 в Orders, 401 у Catalog і Payments |
+| Public client без PKCE | сторінка помилки IdentityServer |
+
+Над HTTP у Development cookie IdentityServer мають `SameSite=Lax`. Зі стандартним `None` без `Secure` браузер їх відкидає, і вхід повертався на сторінку логіну.
+
+### Частина 3. Keycloak + Pulumi
+
+Keycloak запускається через Aspire (`AddKeycloak("keycloak", 8080).WithDataVolume()`, траєкторія Б). Realm, resource servers, ролі, policies, permissions, clients і користувачів описує Pulumi-проєкт `infra/keycloak`; команди й пояснення є в [infra/keycloak/README.md](infra/keycloak/README.md). Демо-сервіс `Services/Payments/Payments.Api` має ендпоінти-заглушки для матриці.
+
+| Endpoint | Permission | admin | manager | user | guest |
+|---|---|---|---|---|---|
+| `GET /api/orders` | `orders:read` | ✓ | ✓ | ✓ | ✗ |
+| `POST /api/orders` | `orders:create` | ✓ | ✗ | ✓ | ✗ |
+| `PUT /api/orders/{id}` | `orders:update` | ✓ | ✓ | ✗ | ✗ |
+| `DELETE /api/orders/{id}` | `orders:delete` | ✓ | ✗ | ✗ | ✗ |
+| `POST /api/orders/{id}/approve` | `orders:approve` | ✓ | ✓ | ✗ | ✗ |
+| `GET /api/events` | `products:read` | ✓ | ✓ | ✓ | ✓ |
+| `POST /api/events` | `products:create` | ✓ | ✗ | ✗ | ✗ |
+| `PUT /api/events/{id}/title` | `products:update` | ✓ | ✓ | ✗ | ✗ |
+| `DELETE /api/events/{id}` | `products:delete` | ✓ | ✗ | ✗ | ✗ |
+| `POST /api/events/{id}/publish` | `products:publish` | ✓ | ✓ | ✗ | ✗ |
+| `GET /api/payments`, `POST /api/payments/process`, `POST /api/payments/refund` | `payments:*` | ✓ | ✗ | ✗ | ✗ |
+
+У CampusTix «products» — це події та типи квитків Каталогу. Решта ендпоінтів Orders і Catalog теж мають `[RequirePermission]`: зміна статусу, скасування й оплата вимагають `orders:update`, видача квитків — `orders:approve`, ціна й залишок — `products:update`.
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```

@@ -13,6 +13,7 @@ public interface ICustomerService
     Task<CustomerDto> CreateAsync(CreateCustomerDto input, CancellationToken ct = default);
     Task<CustomerDto> UpdateAsync(long id, UpdateCustomerDto input, CancellationToken ct = default);
     Task DeleteAsync(long id, CancellationToken ct = default);
+    Task<long?> GetCustomerIdForUserAsync(string externalUserId, string? emailToCreate, string? fullName, CancellationToken ct = default);
 }
 
 public class CustomerService(IUnitOfWork uow, IMapper mapper) : ICustomerService
@@ -29,6 +30,20 @@ public class CustomerService(IUnitOfWork uow, IMapper mapper) : ICustomerService
         var id = await uow.Customers.AddAsync(
             new Customer { Email = input.Email, FullName = input.FullName, Phone = input.Phone }, ct);
         return await GetByIdAsync(id, ct);
+    }
+
+    // Lab 09: the customer profile of a user of the identity provider; created when emailToCreate is given
+    public async Task<long?> GetCustomerIdForUserAsync(string externalUserId, string? emailToCreate, string? fullName,
+        CancellationToken ct = default)
+    {
+        var id = await uow.Customers.GetIdByExternalUserAsync(externalUserId, ct);
+        if (id is not null || string.IsNullOrEmpty(emailToCreate))
+            return id;
+
+        var newId = await uow.Customers.AddAsync(
+            new Customer { Email = emailToCreate, FullName = fullName ?? emailToCreate }, ct);
+        await uow.Customers.LinkExternalUserAsync(newId, externalUserId, ct);
+        return newId;
     }
 
     public async Task<CustomerDto> UpdateAsync(long id, UpdateCustomerDto input, CancellationToken ct = default)

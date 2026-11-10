@@ -1,0 +1,4 @@
+# the stack file holds the encrypted admin password and the salt of the passphrase: it stays on the developer PC
+Pulumi.*.yaml
+bin/
+obj/

@@ -19,6 +19,8 @@ public interface ICustomerRepository
     Task<long> AddAsync(Customer customer, CancellationToken ct = default);
     Task<bool> UpdateAsync(Customer customer, CancellationToken ct = default);   // false = RowVersion mismatch
     Task<bool> DeleteAsync(long id, CancellationToken ct = default);             // soft delete
+    Task<long?> GetIdByExternalUserAsync(string externalUserId, CancellationToken ct = default);   // Lab 09
+    Task LinkExternalUserAsync(long id, string externalUserId, CancellationToken ct = default);    // Lab 09
 }
 
 public interface IOrderRepository : IGenericRepository<Order>
@@ -27,6 +29,7 @@ public interface IOrderRepository : IGenericRepository<Order>
     Task<(IReadOnlyList<OrderSummary> Items, int Total)> GetPageAsync(
         long? customerId, string? status, int page, int pageSize, CancellationToken ct = default);
     Task AddDetailsAsync(OrderDetails details, CancellationToken ct = default);
+    Task<bool> UpdateDetailsAsync(OrderDetails details, CancellationToken ct = default);           // Lab 09
     Task AddItemAsync(OrderItem item, CancellationToken ct = default);
     Task ConfirmAsync(long orderId, string? changedBy, CancellationToken ct = default);                  // usp_ConfirmOrder
     Task ChangeStatusAsync(long orderId, string newStatus, string? changedBy, CancellationToken ct = default); // usp_ChangeOrderStatus

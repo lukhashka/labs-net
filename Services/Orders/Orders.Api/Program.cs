@@ -3,6 +3,8 @@ using Orders.Api.GrpcServices;
 using Orders.Api.HealthChecks;
 using Orders.Api.IntegrationEvents;
 using Orders.Api.Metrics;
+using Orders.Api.Security;
+using Platform.ServiceDefaults.Authentication;
 using Orders.Bll.Mapping;
 using Orders.Bll.Services;
 using Orders.Dal;
@@ -36,6 +38,20 @@ builder.Services.AddOrdersHealthChecks(connectionString);
 builder.AddEventBus();
 CatalogEventsConsumer.Register(builder.Services);
 
+// Lab 09: tokens of the Auth Service, IdentityServer (audience orders_api) and Keycloak (audience orders-api).
+// The service validates every token locally and checks the permission of the endpoint itself.
+builder.AddPlatformAuthentication(identityServerAudience: "orders_api")
+    .AddKeycloakJwtBearer(serviceName: "keycloak", realm: PlatformAuthentication.KeycloakRealm,
+        authenticationScheme: PlatformAuthentication.Keycloak, o =>
+        {
+            o.Audience = "orders-api";
+            o.MapInboundClaims = false;
+            if (builder.Environment.IsDevelopment())
+                o.RequireHttpsMetadata = false;            // Keycloak runs over HTTP in development
+        });
+builder.Services.AddPlatformAuthorization();
+builder.Services.AddScoped<CurrentUser>();
+
 builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
@@ -59,6 +75,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.MapGrpcService<OrdersGrpcService>();

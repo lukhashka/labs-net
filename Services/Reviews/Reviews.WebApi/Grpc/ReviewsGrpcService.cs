@@ -9,6 +9,7 @@ using Reviews.Grpc;
 namespace Reviews.WebApi.GrpcServices;
 
 // Adapter like the controller: only sends queries to MediatR and converts the result
+[Microsoft.AspNetCore.Authorization.Authorize(Policy = "reviews.read")]   // Lab 09: Client Credentials of the Aggregator
 public class ReviewsGrpcService(ISender mediator) : ReviewsService.ReviewsServiceBase
 {
     public override async Task<RatingSummaryReply> GetRatingSummary(GetRatingSummaryRequest request, ServerCallContext context)

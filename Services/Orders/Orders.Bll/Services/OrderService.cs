@@ -20,6 +20,7 @@ public interface IOrderService
     Task RegisterPaymentAsync(long orderId, RegisterPaymentDto input, CancellationToken ct = default);
     Task IssueTicketsAsync(long orderId, CancellationToken ct = default);
     Task DeleteAsync(long orderId, CancellationToken ct = default);
+    Task UpdateDetailsAsync(long orderId, UpdateOrderDetailsDto input, CancellationToken ct = default);
 }
 
 public class OrderService(IUnitOfWork uow, IMapper mapper, ILogger<OrderService> logger) : IOrderService
@@ -168,6 +169,19 @@ public class OrderService(IUnitOfWork uow, IMapper mapper, ILogger<OrderService>
     {
         await uow.Orders.IssueTicketsAsync(orderId, ct);
         logger.LogInformation("Tickets issued for order {OrderId}", orderId);
+    }
+
+    // Lab 09: PUT /api/orders/{id}; the details of a cancelled order are not changed any more
+    public async Task UpdateDetailsAsync(long orderId, UpdateOrderDetailsDto input, CancellationToken ct = default)
+    {
+        var order = await uow.Orders.GetWithItemsAsync(orderId, ct) ?? throw new NotFoundException($"Order {orderId} not found");
+        if (order.Status == "Cancelled")
+            throw new BusinessConflictException($"Order {orderId} is cancelled");
+
+        await uow.Orders.UpdateDetailsAsync(new OrderDetails
+        {
+            OrderId = orderId, AttendeeName = input.AttendeeName, AttendeeEmail = input.AttendeeEmail, Comment = input.Comment
+        }, ct);
     }
 
     public async Task DeleteAsync(long orderId, CancellationToken ct = default)

@@ -5,6 +5,8 @@ using Orders.Grpc;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.HealthChecks;
 using Platform.Aggregator.Resilience;
+using Platform.Aggregator.Security;
+using Platform.ServiceDefaults.Authentication;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
 using Reviews.Grpc;
@@ -33,9 +35,28 @@ else
 
 // Every client has the policy of its service: critical orders-api and catalog-api, non-critical reviews-api
 var isDevelopment = builder.Environment.IsDevelopment();
-builder.Services.AddResilientGrpcClient<OrdersService.OrdersServiceClient>(DownstreamPolicy.Orders, isDevelopment);
-builder.Services.AddResilientGrpcClient<CatalogService.CatalogServiceClient>(DownstreamPolicy.Catalog, isDevelopment);
-builder.Services.AddResilientGrpcClient<ReviewsService.ReviewsServiceClient>(DownstreamPolicy.Reviews, isDevelopment);
+// Lab 09: every gRPC call carries the Client Credentials token of the Aggregator (scopes *.read, no user)
+builder.Services.AddHttpClient(nameof(ClientCredentialsTokenProvider));
+builder.Services.AddSingleton<ClientCredentialsTokenProvider>();
+builder.Services.AddTransient<ClientCredentialsHandler>();
+builder.Services.AddResilientGrpcClient<OrdersService.OrdersServiceClient>(DownstreamPolicy.Orders, isDevelopment)
+    .AddHttpMessageHandler<ClientCredentialsHandler>();
+builder.Services.AddResilientGrpcClient<CatalogService.CatalogServiceClient>(DownstreamPolicy.Catalog, isDevelopment)
+    .AddHttpMessageHandler<ClientCredentialsHandler>();
+builder.Services.AddResilientGrpcClient<ReviewsService.ReviewsServiceClient>(DownstreamPolicy.Reviews, isDevelopment)
+    .AddHttpMessageHandler<ClientCredentialsHandler>();
+
+// The HTTP endpoint of the Aggregator needs a user token (any of the three providers)
+builder.AddPlatformAuthentication(identityServerAudience: "orders_api")
+    .AddKeycloakJwtBearer(serviceName: "keycloak", realm: PlatformAuthentication.KeycloakRealm,
+        authenticationScheme: PlatformAuthentication.Keycloak, o =>
+        {
+            o.Audience = "orders-api";
+            o.MapInboundClaims = false;
+            if (builder.Environment.IsDevelopment())
+                o.RequireHttpsMetadata = false;
+        });
+builder.Services.AddPlatformAuthorization();
 
 // Readiness of the Aggregator: the services it depends on, asked over the gRPC Health Checking Protocol.
 // Without reviews-api the Aggregator still works (partial answers), so it becomes Degraded, not Unhealthy.
@@ -65,6 +86,8 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 
 app.MapDefaultEndpoints();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 app.Run();

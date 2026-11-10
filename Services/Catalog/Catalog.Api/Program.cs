@@ -13,6 +13,7 @@ using Catalog.Dal;
 using Catalog.Dal.Seeding;
 using FluentValidation;
 using Platform.EventBus;
+using Platform.ServiceDefaults.Authentication;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,6 +53,19 @@ builder.Services.AddCatalogHealthChecks(builder.Configuration);
 builder.AddEventBus();
 builder.Services.AddHostedService<OutboxPublisher>();
 
+// Lab 09: tokens of the Auth Service, IdentityServer (audience products_api) and Keycloak (audience products-api).
+// The service validates every token locally and checks the permission of the endpoint itself.
+builder.AddPlatformAuthentication(identityServerAudience: "products_api")
+    .AddKeycloakJwtBearer(serviceName: "keycloak", realm: PlatformAuthentication.KeycloakRealm,
+        authenticationScheme: PlatformAuthentication.Keycloak, o =>
+        {
+            o.Audience = "products-api";
+            o.MapInboundClaims = false;
+            if (builder.Environment.IsDevelopment())
+                o.RequireHttpsMetadata = false;            // Keycloak runs over HTTP in development
+        });
+builder.Services.AddPlatformAuthorization();
+
 // BLL
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<ITicketTypeService, TicketTypeService>();
@@ -87,6 +101,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();

@@ -1,4 +1,5 @@
 using Platform.EventBus;
+using Platform.ServiceDefaults.Authentication;
 using Platform.ServiceDefaults;
 using Reviews.Application;
 using Reviews.Infrastructure;
@@ -33,6 +34,19 @@ builder.Services.AddReviewsHealthChecks();
 builder.AddEventBus();
 CatalogEventsConsumer.Register(builder.Services);
 
+// Lab 09: tokens of the Auth Service, IdentityServer (audience reviews_api) and Keycloak (audience reviews-api).
+// The service validates every token locally and checks the permission of the endpoint itself.
+builder.AddPlatformAuthentication(identityServerAudience: "reviews_api")
+    .AddKeycloakJwtBearer(serviceName: "keycloak", realm: PlatformAuthentication.KeycloakRealm,
+        authenticationScheme: PlatformAuthentication.Keycloak, o =>
+        {
+            o.Audience = "reviews-api";
+            o.MapInboundClaims = false;
+            if (builder.Environment.IsDevelopment())
+                o.RequireHttpsMetadata = false;            // Keycloak runs over HTTP in development
+        });
+builder.Services.AddPlatformAuthorization();
+
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.MapDefaultEndpoints();                       // /health, /alive, /health/live, /health/ready
@@ -58,6 +72,9 @@ using (var scope = app.Services.CreateScope())
         app.Logger.LogError(ex, "Seeding failed - is MongoDB running?");
     }
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();

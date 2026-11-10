@@ -35,6 +35,11 @@ public record RegisterPaymentDto(
     [Required, StringLength(100)] string ExternalRef);     // idempotency token: repeated value -> 409
 
 // Customers
+public record UpdateOrderDetailsDto(
+    [Required, StringLength(200, MinimumLength = 1)] string AttendeeName,
+    [Required, EmailAddress, StringLength(256)] string AttendeeEmail,
+    [StringLength(500)] string? Comment);
+
 public record CustomerDto(long Id, string Email, string FullName, string? Phone, string RowVersion);
 
 public record CreateCustomerDto(

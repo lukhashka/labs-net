@@ -1,0 +1,10 @@
+name: campustix-keycloak
+runtime: dotnet
+description: Keycloak realm DevRealmDrivers of CampusTix - resource servers, scopes, roles, policies, clients, test users (Lab 09, Part 3)
+config:
+  keycloakUrl:
+    value: http://localhost:8080
+  adminUser:
+    value: admin
+  temporaryPasswords:
+    value: true

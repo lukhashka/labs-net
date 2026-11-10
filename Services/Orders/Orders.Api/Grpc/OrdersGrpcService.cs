@@ -7,7 +7,9 @@ using Orders.Grpc;
 
 namespace Orders.Api.GrpcServices;
 
-// Adapter over the BLL of Lab 02: conversion of models and exceptions only
+// Adapter over the BLL of Lab 02: conversion of models and exceptions only.
+// Lab 09: called by the Aggregator with a Client Credentials token, the scope orders.read is required.
+[Microsoft.AspNetCore.Authorization.Authorize(Policy = "orders.read")]
 public class OrdersGrpcService(IOrderService orders, ITicketTypeService ticketTypes) : OrdersService.OrdersServiceBase
 {
     public override async Task<OrderReply> GetOrder(GetOrderRequest request, ServerCallContext context)

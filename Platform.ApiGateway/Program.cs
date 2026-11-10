@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Authentication;
+using Yarp.ReverseProxy.Transforms;
 using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.Model;
 
@@ -7,9 +10,33 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
+// Lab 09: the gateway validates the token BEFORE proxying (route policy "default"); /auth is anonymous.
+// Audiences are not checked here: every service checks its own audience and permissions again.
+builder.AddPlatformAuthentication(identityServerAudience: "orders_api")
+    .AddKeycloakJwtBearer(serviceName: "keycloak", realm: PlatformAuthentication.KeycloakRealm,
+        authenticationScheme: PlatformAuthentication.Keycloak, o =>
+        {
+            o.TokenValidationParameters.ValidateAudience = false;
+            o.MapInboundClaims = false;
+            if (builder.Environment.IsDevelopment())
+                o.RequireHttpsMetadata = false;
+        });
+builder.Services.PostConfigure<JwtBearerOptions>(PlatformAuthentication.IdentityServer,
+    o => o.TokenValidationParameters.ValidateAudience = false);
+builder.Services.AddAuthorization();
+
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
-    .AddServiceDiscoveryDestinationResolver();          // http://orders-api -> real address from Aspire
+    .AddServiceDiscoveryDestinationResolver()           // http://orders-api -> real address from Aspire
+    .AddTransforms(context => context.AddRequestTransform(transform =>
+    {
+        // The Authorization header goes further unchanged. X-User-Id is set only from the validated token,
+        // a value sent by the client is removed, so it cannot pretend to be another user.
+        transform.ProxyRequest.Headers.Remove("X-User-Id");
+        if (transform.HttpContext.User.FindFirst("sub")?.Value is { } userId)
+            transform.ProxyRequest.Headers.TryAddWithoutValidation("X-User-Id", userId);
+        return ValueTask.CompletedTask;
+    }));
 
 var app = builder.Build();
 
@@ -37,6 +64,8 @@ app.Use(async (context, next) =>
 });
 
 app.MapDefaultEndpoints();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapReverseProxy();
 
 app.Run();

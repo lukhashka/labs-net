@@ -3,6 +3,7 @@ using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Platform.ServiceDefaults.Authentication;
 
 namespace Catalog.Api.Controllers;
 
@@ -13,6 +14,7 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
 {
     // GET api/ticket-types?page=2&pageSize=5&minPrice=20&sortBy=price&sortDir=desc
     [HttpGet]
+    [RequirePermission("products:read")]
     [ProducesResponseType<PagedResult<TicketTypeDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<TicketTypeDto>>> GetList([FromQuery] TicketTypeQuery query, CancellationToken ct)
     {
@@ -22,12 +24,14 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
     }
 
     [HttpGet("{id:int}")]
+    [RequirePermission("products:read")]
     [ProducesResponseType<TicketTypeDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<TicketTypeDto>> GetById(int id, CancellationToken ct)
         => Ok(await service.GetByIdAsync(id, ct));
 
     [HttpPost]
+    [RequirePermission("products:create")]
     [ProducesResponseType<TicketTypeDto>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -44,6 +48,7 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
     }
 
     [HttpPut("{id:int}/price")]
+    [RequirePermission("products:update")]
     [ProducesResponseType<TicketTypeDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -60,6 +65,7 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
     }
 
     [HttpPost("{id:int}/stock/remove")]
+    [RequirePermission("products:update")]
     [ProducesResponseType<TicketTypeDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -67,6 +73,7 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
         => Ok(await service.RemoveStockAsync(id, input.Quantity, ct));
 
     [HttpPost("{id:int}/stock/add")]
+    [RequirePermission("products:update")]
     [ProducesResponseType<TicketTypeDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -74,6 +81,7 @@ public class TicketTypesController(ITicketTypeService service, CatalogMetrics me
         => Ok(await service.AddStockAsync(id, input.Quantity, ct));
 
     [HttpDelete("{id:int}")]
+    [RequirePermission("products:delete")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)

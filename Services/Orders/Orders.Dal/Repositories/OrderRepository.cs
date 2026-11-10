@@ -70,6 +70,15 @@ public sealed class OrderRepository(SqlConnection connection, Func<SqlTransactio
             """, details, ct));
     }
 
+    public async Task<bool> UpdateDetailsAsync(OrderDetails details, CancellationToken ct = default)
+    {
+        await EnsureOpenAsync(ct);
+        return await Connection.ExecuteAsync(Command("""
+            UPDATE dbo.OrderDetails SET AttendeeName = @AttendeeName, AttendeeEmail = @AttendeeEmail, Comment = @Comment
+            WHERE OrderId = @OrderId
+            """, details, ct)) > 0;
+    }
+
     public async Task AddItemAsync(OrderItem item, CancellationToken ct = default)
     {
         await EnsureOpenAsync(ct);

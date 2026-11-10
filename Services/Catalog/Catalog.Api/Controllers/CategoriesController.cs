@@ -1,6 +1,7 @@
 using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 using Microsoft.AspNetCore.Mvc;
+using Platform.ServiceDefaults.Authentication;
 
 namespace Catalog.Api.Controllers;
 
@@ -10,12 +11,14 @@ namespace Catalog.Api.Controllers;
 public class CategoriesController(ICategoryService service) : ControllerBase
 {
     [HttpGet]
+    [RequirePermission("products:read")]
     [ProducesResponseType<IReadOnlyList<CategoryDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<CategoryDto>>> GetAll(CancellationToken ct)
         => Ok(await service.GetAllAsync(ct));
 
     // explicit loading: 2 SQL queries in the log
     [HttpGet("{id:int}/events")]
+    [RequirePermission("products:read")]
     [ProducesResponseType<CategoryWithEventsDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<CategoryWithEventsDto>> GetWithEvents(int id, CancellationToken ct)
@@ -23,6 +26,7 @@ public class CategoriesController(ICategoryService service) : ControllerBase
 
     // M:N through EventCategory.AddedAt
     [HttpGet("{id:int}/recent-events")]
+    [RequirePermission("products:read")]
     [ProducesResponseType<IReadOnlyList<EventDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<EventDto>>> GetRecentlyAdded(

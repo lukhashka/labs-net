@@ -3,6 +3,7 @@ using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
+using Platform.ServiceDefaults.Authentication;
 
 namespace Catalog.Api.Controllers;
 
@@ -14,6 +15,7 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
 {
     // GET api/events?page=2&pageSize=5&search=hack&categoryId=2&minPrice=10&sortBy=price&sortDir=desc
     [HttpGet]
+    [RequirePermission("products:read")]
     [ProducesResponseType<PagedResult<EventDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PagedResult<EventDto>>> GetList(
@@ -29,18 +31,21 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
     }
 
     [HttpGet("{id:int}")]
+    [RequirePermission("products:read")]
     [ProducesResponseType<EventDetailsDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<EventDetailsDto>> GetById(int id, CancellationToken ct)
         => Ok(await service.GetByIdAsync(id, ct));
 
     [HttpGet("~/api/venues/{venueId:int}/events")]
+    [RequirePermission("products:read")]
     [ProducesResponseType<IReadOnlyList<EventDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<EventDto>>> GetUpcomingByVenue(int venueId, CancellationToken ct)
         => Ok(await service.GetUpcomingByVenueAsync(venueId, ct));
 
     [HttpPost]
+    [RequirePermission("products:create")]
     [ProducesResponseType<EventDetailsDto>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -58,6 +63,7 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
     }
 
     [HttpPut("{id:int}/schedule")]
+    [RequirePermission("products:update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -68,6 +74,7 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
     }
 
     [HttpPut("{id:int}/title")]
+    [RequirePermission("products:update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -78,6 +85,7 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
     }
 
     [HttpPost("{id:int}/publish")]
+    [RequirePermission("products:publish")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -89,6 +97,7 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
     }
 
     [HttpDelete("{id:int}")]
+    [RequirePermission("products:delete")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
