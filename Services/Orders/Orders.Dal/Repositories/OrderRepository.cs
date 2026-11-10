@@ -125,4 +125,13 @@ public sealed class OrderRepository(SqlConnection connection, Func<SqlTransactio
             throw Translate(ex);
         }
     }
+
+    // One light GROUP BY for the gauge orders.current; soft-deleted orders are not counted
+    public async Task<IReadOnlyDictionary<string, int>> CountByStatusAsync(CancellationToken ct = default)
+    {
+        await EnsureOpenAsync(ct);
+        var rows = await Connection.QueryAsync<(string Status, int Count)>(Command(
+            "SELECT Status, COUNT(*) AS Count FROM dbo.Orders WHERE IsDeleted = 0 GROUP BY Status", null, ct));
+        return rows.ToDictionary(r => r.Status, r => r.Count);
+    }
 }

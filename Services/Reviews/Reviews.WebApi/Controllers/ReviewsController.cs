@@ -7,6 +7,7 @@ using Reviews.Application.Reviews.Commands.DeleteReview;
 using Reviews.Application.Reviews.Commands.UpdateReview;
 using Reviews.Application.Reviews.Queries.GetReviewById;
 using Reviews.Application.Reviews.Queries.GetReviewsList;
+using Reviews.WebApi.Metrics;
 
 namespace Reviews.WebApi.Controllers;
 
@@ -14,7 +15,7 @@ namespace Reviews.WebApi.Controllers;
 // Errors (400/404/409/503) are converted by GlobalExceptionHandler.
 [ApiController]
 [Route("api/reviews")]
-public class ReviewsController(ISender mediator) : ControllerBase
+public class ReviewsController(ISender mediator, ReviewMetrics metrics) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -41,7 +42,8 @@ public class ReviewsController(ISender mediator) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<string>> Create(CreateReviewCommand command, CancellationToken ct)
     {
-        var id = await mediator.Send(command, ct);
+        var id = await metrics.MeasureAsync("create-review", () => mediator.Send(command, ct));
+        metrics.ReviewCreated(command.Rating);
         return CreatedAtAction(nameof(GetById), new { id }, new { id });
     }
 
@@ -55,7 +57,7 @@ public class ReviewsController(ISender mediator) : ControllerBase
         [FromHeader(Name = "If-Match")] string? ifMatch, CancellationToken ct)
     {
         var version = int.TryParse(ifMatch?.Trim('"'), out var v) ? v : body.Version;
-        await mediator.Send(new UpdateReviewCommand(id, body.Rating, body.Text, version), ct);
+        await metrics.MeasureAsync("update-review", () => mediator.Send(new UpdateReviewCommand(id, body.Rating, body.Text, version), ct));
         return NoContent();
     }
 
@@ -64,7 +66,7 @@ public class ReviewsController(ISender mediator) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
-        await mediator.Send(new DeleteReviewCommand(id), ct);
+        await metrics.MeasureAsync("delete-review", () => mediator.Send(new DeleteReviewCommand(id), ct));
         return NoContent();
     }
 
@@ -75,8 +77,9 @@ public class ReviewsController(ISender mediator) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> AddComment(string id, AddCommentRequest body, CancellationToken ct)
     {
-        var commentId = await mediator.Send(
-            new AddCommentCommand(id, body.AuthorUserId, body.AuthorName, body.Text), ct);
+        var commentId = await metrics.MeasureAsync("add-comment", () => mediator.Send(
+            new AddCommentCommand(id, body.AuthorUserId, body.AuthorName, body.Text), ct));
+        metrics.CommentAdded();
         return CreatedAtAction(nameof(GetById), new { id }, new { id = commentId });
     }
 }

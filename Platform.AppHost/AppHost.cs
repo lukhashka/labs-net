@@ -15,7 +15,9 @@ var redis = builder.AddRedis("redis").WithDataVolume();
 // Benchmark:CacheEnabled=false switches caches off for a fair comparison of HTTP and gRPC
 var cacheEnabled = builder.Configuration["Benchmark:CacheEnabled"] ?? "true";
 
-// The resource name becomes the logical name for service discovery
+// The resource name becomes the logical name for service discovery.
+// WithHttpHealthCheck (Lab 07): the Dashboard shows Healthy / Degraded / Unhealthy of every service,
+// and WaitFor of the next resource waits for a healthy dependency, not only for a started process.
 // The https profile: gRPC needs HTTP/2, on Kestrel it is negotiated over TLS (ALPN). REST stays on the same service.
 var orders = builder.AddProject<Projects.Orders_Api>("orders-api", launchProfileName: "https")
     .WithReference(ordersDb).WaitFor(ordersDb)
@@ -42,6 +44,7 @@ builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")
     .WithReference(orders).WithReference(catalog).WithReference(reviews)
     .WithReference(aggregator)
-    .WaitFor(aggregator);
+    .WaitFor(aggregator)                                      // waits until the Aggregator is Healthy, not only started
+    .WithHttpHealthCheck("/health", endpointName: "http");
 
 builder.Build().Run();

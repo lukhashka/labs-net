@@ -1,5 +1,7 @@
 using Orders.Api.ErrorHandling;
 using Orders.Api.GrpcServices;
+using Orders.Api.HealthChecks;
+using Orders.Api.Metrics;
 using Orders.Bll.Mapping;
 using Orders.Bll.Services;
 using Orders.Dal;
@@ -22,6 +24,12 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ITicketTypeService, TicketTypeService>();
 builder.Services.AddAutoMapper(cfg => cfg.AddProfile<OrdersProfile>());
 
+// Lab 07: business metrics (singleton for the whole lifetime) and health checks of the database
+builder.Services.AddSingleton<OrderStatusSnapshot>();
+builder.Services.AddSingleton<OrderMetrics>();
+builder.Services.AddHostedService<OrderStatusRefresher>();
+builder.Services.AddOrdersHealthChecks(connectionString);
+
 builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
@@ -32,7 +40,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.MapDefaultEndpoints();                       // /health and /alive
+app.MapDefaultEndpoints();                       // /health, /alive, /health/live, /health/ready
 
 // Schema, procedures and seed from Lab 01; seed can be switched off with Seeding:Enabled=false
 await app.Services.GetRequiredService<DatabaseBootstrapper>().EnsureCreatedAsync(
@@ -48,5 +56,6 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<OrdersGrpcService>();
+app.MapGrpcHealthChecksService();               // grpc.health.v1.Health for the Aggregator
 
 app.Run();

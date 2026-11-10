@@ -1,10 +1,10 @@
-using System.Net.Security;
 using System.Text.Json.Serialization;
 using Catalog.Grpc;
-using Grpc.Net.ClientFactory;
-using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Orders.Grpc;
 using Platform.Aggregator.Clients;
+using Platform.Aggregator.HealthChecks;
+using Platform.Aggregator.Resilience;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
 using Reviews.Grpc;
@@ -13,30 +13,36 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
-if (!string.IsNullOrEmpty(builder.Configuration.GetConnectionString("redis")))
-    builder.AddRedisDistributedCache("redis", configureOptions: o =>
-    {
-        o.ConnectTimeout = 1000;
-        o.SyncTimeout = 1000;
-        o.AsyncTimeout = 1000;
-    });
+var redisConnection = builder.Configuration.GetConnectionString("redis");
+if (!string.IsNullOrEmpty(redisConnection))
+{
+    builder.AddRedisDistributedCache("redis",
+        configureSettings: s => s.DisableHealthChecks = true,     // own check below: Degraded instead of Unhealthy
+        configureOptions: o =>
+        {
+            o.ConnectTimeout = 1000;
+            o.SyncTimeout = 1000;
+            o.AsyncTimeout = 1000;
+        });
+    // The aggregate cache is optional: without Redis the Aggregator calls the services directly
+    builder.Services.AddHealthChecks().AddRedis(redisConnection, name: "redis-cache",
+        failureStatus: HealthStatus.Degraded, tags: ["cache", "redis", "ready"], timeout: TimeSpan.FromSeconds(3));
+}
 else
     builder.Services.AddDistributedMemoryCache();
 
-// By default one call may wait 10 s per attempt. A card must answer quickly, a warning is better than waiting.
-builder.Services.ConfigureAll<HttpStandardResilienceOptions>(o =>
-{
-    o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
-    o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
-    o.Retry.MaxRetryAttempts = 1;
-    o.Retry.Delay = TimeSpan.FromMilliseconds(200);
-});
+// Every client has the policy of its service: critical orders-api and catalog-api, non-critical reviews-api
+var isDevelopment = builder.Environment.IsDevelopment();
+builder.Services.AddResilientGrpcClient<OrdersService.OrdersServiceClient>(DownstreamPolicy.Orders, isDevelopment);
+builder.Services.AddResilientGrpcClient<CatalogService.CatalogServiceClient>(DownstreamPolicy.Catalog, isDevelopment);
+builder.Services.AddResilientGrpcClient<ReviewsService.ReviewsServiceClient>(DownstreamPolicy.Reviews, isDevelopment);
 
-// gRPC clients are created by the HttpClient factory, so service discovery, resilience and CorrelationIdHandler
-// from ServiceDefaults work for them too. The name of the service is resolved like for HttpClient in Lab 05.
-AddGrpcClient<OrdersService.OrdersServiceClient>("https://orders-api");
-AddGrpcClient<CatalogService.CatalogServiceClient>("https://catalog-api");
-AddGrpcClient<ReviewsService.ReviewsServiceClient>("https://reviews-api");
+// Readiness of the Aggregator: the services it depends on, asked over the gRPC Health Checking Protocol.
+// Without reviews-api the Aggregator still works (partial answers), so it becomes Degraded, not Unhealthy.
+builder.Services.AddHealthChecks()
+    .AddGrpcDependency(builder.Services, "orders-api", HealthStatus.Unhealthy, isDevelopment)
+    .AddGrpcDependency(builder.Services, "catalog-api", HealthStatus.Unhealthy, isDevelopment)
+    .AddGrpcDependency(builder.Services, "reviews-api", HealthStatus.Degraded, isDevelopment);
 
 builder.Services.AddScoped<OrdersClient>();
 builder.Services.AddScoped<CatalogClient>();
@@ -63,22 +69,3 @@ app.MapControllers();
 
 app.Run();
 
-void AddGrpcClient<TClient>(string address) where TClient : class
-{
-    var client = builder.Services.AddGrpcClient<TClient>(o => o.Address = new Uri(address));
-
-    client.ConfigurePrimaryHttpMessageHandler(() =>
-    {
-        var handler = new SocketsHttpHandler { EnableMultipleHttp2Connections = true };
-
-        // Development only: accept the ASP.NET Core development certificate even if the machine does not trust it.
-        // Every other certificate and every other environment go through the normal validation.
-        if (builder.Environment.IsDevelopment())
-            handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
-                errors == SslPolicyErrors.None
-                || certificate is System.Security.Cryptography.X509Certificates.X509Certificate2 c
-                   && c.Extensions.Any(e => e.Oid?.Value == "1.3.6.1.4.1.311.84.1.1");   // OID of the ASP.NET Core HTTPS development certificate
-
-        return handler;
-    });
-}

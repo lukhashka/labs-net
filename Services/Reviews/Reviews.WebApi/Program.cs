@@ -3,6 +3,8 @@ using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using Reviews.WebApi.GrpcServices;
+using Reviews.WebApi.HealthChecks;
+using Reviews.WebApi.Metrics;
 using Reviews.WebApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,9 +23,13 @@ builder.Services
 
 builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 
+// Lab 07: business metrics and health check of MongoDB
+builder.Services.AddSingleton<ReviewMetrics>();
+builder.Services.AddReviewsHealthChecks();
+
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.MapDefaultEndpoints();                       // /health and /alive
+app.MapDefaultEndpoints();                       // /health, /alive, /health/live, /health/ready
 
 app.UseExceptionHandler();
 
@@ -49,5 +55,6 @@ using (var scope = app.Services.CreateScope())
 
 app.MapControllers();
 app.MapGrpcService<ReviewsGrpcService>();
+app.MapGrpcHealthChecksService();               // grpc.health.v1.Health for the Aggregator
 
 app.Run();

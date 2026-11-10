@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -20,6 +21,10 @@ public static class Extensions
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
+    // Meters of all services: business metrics (Lab 07), cache metrics (Lab 06) and resilience events of Polly
+    private static readonly string[] Meters =
+        ["Orders.Api", "Catalog.Api", "Reviews.WebApi", "Catalog.Cache", "Aggregator.Cache", "Polly"];
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureSerilog();
@@ -32,7 +37,14 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            http.AddStandardResilienceHandler();                    // retry, circuit breaker, timeouts (details - Lab 07)
+            // One Standard Resilience Handler for every HttpClient and gRPC client: rate limiter, total timeout,
+            // retry, circuit breaker, attempt timeout. A client with other needs removes it first
+            // (RemoveAllResilienceHandlers) and adds its own, handlers are never stacked (Platform.Aggregator).
+            http.AddStandardResilienceHandler(o =>
+            {
+                o.Retry.UseJitter = true;                           // clients do not retry at the same moment
+                o.Retry.DisableForUnsafeHttpMethods();              // POST/PUT/DELETE are not repeated: no double orders
+            });
             http.AddServiceDiscovery();                             // http://orders-api -> real address from Aspire
             http.AddHttpMessageHandler<CorrelationIdHandler>();     // the same X-Correlation-Id in outgoing calls
         });
@@ -74,7 +86,7 @@ public static class Extensions
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
-                .AddMeter("Catalog.Cache", "Aggregator.Cache"))
+                .AddMeter(Meters))
             .WithTracing(tracing =>
             {
                 // 100 % in Development, a configurable share in Production; a child follows the decision of its parent
@@ -105,23 +117,31 @@ public static class Extensions
 
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // Liveness: the process answers. No external dependency here, otherwise a database failure would restart the pod.
         builder.Services.AddHealthChecks()
             .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
 
         return builder;
     }
 
+    // The endpoints are mapped in every environment: Kubernetes probes (Lab 10) and the Aspire Dashboard need them.
+    // Answers contain only names, statuses and durations of checks, no connection strings and no exception texts.
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Health endpoints outside Development have security implications, see Lab 07
-        if (app.Environment.IsDevelopment())
+        // all checks: the state of the resource in the Aspire Dashboard (WithHttpHealthCheck in AppHost)
+        app.MapHealthChecks(HealthEndpointPath, new HealthCheckOptions { ResponseWriter = HealthResponseWriter.WriteJson });
+
+        // liveness: only the process itself, must answer in < 100 ms
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") });
+        app.MapHealthChecks(HealthEndpointPath + "/live", new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") });
+
+        // readiness: every dependency needed to serve traffic (tag "ready"), details of each check in JSON.
+        // Degraded (cache) still gives 200: the service can take traffic, Unhealthy gives 503.
+        app.MapHealthChecks(HealthEndpointPath + "/ready", new HealthCheckOptions
         {
-            app.MapHealthChecks(HealthEndpointPath);
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+            Predicate = r => r.Tags.Contains("ready"),
+            ResponseWriter = HealthResponseWriter.WriteJson
+        });
 
         return app;
     }

@@ -1,3 +1,4 @@
+using Catalog.Api.Metrics;
 using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 using FluentValidation;
@@ -9,7 +10,7 @@ namespace Catalog.Api.Controllers;
 [ApiController]
 [Route("api/events")]
 [Produces("application/json")]
-public class EventsController(IEventService service) : ControllerBase
+public class EventsController(IEventService service, CatalogMetrics metrics) : ControllerBase
 {
     // GET api/events?page=2&pageSize=5&search=hack&categoryId=2&minPrice=10&sortBy=price&sortDir=desc
     [HttpGet]
@@ -51,7 +52,8 @@ public class EventsController(IEventService service) : ControllerBase
         if (!validation.IsValid)
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
 
-        var created = await service.CreateAsync(input, ct);
+        var created = await metrics.MeasureAsync("create-event", () => service.CreateAsync(input, ct));
+        metrics.EventCreated(created.Status);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -61,7 +63,7 @@ public class EventsController(IEventService service) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Reschedule(int id, RescheduleEventDto input, CancellationToken ct)
     {
-        await service.RescheduleAsync(id, input, ct);
+        await metrics.MeasureAsync("reschedule", () => service.RescheduleAsync(id, input, ct));
         return NoContent();
     }
 
@@ -71,7 +73,8 @@ public class EventsController(IEventService service) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Publish(int id, CancellationToken ct)
     {
-        await service.PublishAsync(id, ct);
+        await metrics.MeasureAsync("publish", () => service.PublishAsync(id, ct));
+        metrics.EventPublished();
         return NoContent();
     }
 
@@ -80,7 +83,7 @@ public class EventsController(IEventService service) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
-        await service.DeleteAsync(id, ct);
+        await metrics.MeasureAsync("delete-event", () => service.DeleteAsync(id, ct));
         return NoContent();
     }
 }

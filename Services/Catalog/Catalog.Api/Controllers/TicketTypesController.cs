@@ -1,3 +1,4 @@
+using Catalog.Api.Metrics;
 using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 using FluentValidation;
@@ -8,7 +9,7 @@ namespace Catalog.Api.Controllers;
 [ApiController]
 [Route("api/ticket-types")]
 [Produces("application/json")]
-public class TicketTypesController(ITicketTypeService service) : ControllerBase
+public class TicketTypesController(ITicketTypeService service, CatalogMetrics metrics) : ControllerBase
 {
     // GET api/ticket-types?page=2&pageSize=5&minPrice=20&sortBy=price&sortDir=desc
     [HttpGet]
@@ -53,7 +54,9 @@ public class TicketTypesController(ITicketTypeService service) : ControllerBase
         if (!validation.IsValid)
             return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
 
-        return Ok(await service.ChangePriceAsync(id, input.Price, ct));
+        var changed = await metrics.MeasureAsync("change-price", () => service.ChangePriceAsync(id, input.Price, ct));
+        metrics.PriceChanged();
+        return Ok(changed);
     }
 
     [HttpPost("{id:int}/stock/remove")]

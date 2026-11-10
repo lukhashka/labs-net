@@ -33,6 +33,7 @@ public interface IOrderRepository : IGenericRepository<Order>
     Task CancelAsync(long orderId, string? changedBy, CancellationToken ct = default);                   // usp_CancelOrder
     Task RegisterPaymentAsync(long orderId, decimal amount, string method, string externalRef, CancellationToken ct = default); // usp_RegisterPayment
     Task IssueTicketsAsync(long orderId, CancellationToken ct = default);                                // usp_IssueTickets
+    Task<IReadOnlyDictionary<string, int>> CountByStatusAsync(CancellationToken ct = default);           // gauge of Lab 07
 }
 
 public interface ITicketTypeRepository : IGenericRepository<TicketType>

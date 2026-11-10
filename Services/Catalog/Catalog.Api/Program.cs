@@ -1,4 +1,6 @@
 using Catalog.Api.GrpcServices;
+using Catalog.Api.HealthChecks;
+using Catalog.Api.Metrics;
 using Catalog.Api.Infrastructure;
 using Catalog.Api.Middleware;
 using Catalog.Bll.Caching;
@@ -26,7 +28,9 @@ builder.Services.AddMemoryCache(o =>
     o.TrackStatistics = true;
 });
 if (!string.IsNullOrEmpty(builder.Configuration.GetConnectionString("redis")))
-    builder.AddRedisDistributedCache("redis", configureOptions: o =>
+    builder.AddRedisDistributedCache("redis",
+        configureSettings: s => s.DisableHealthChecks = true,   // own check with Degraded, see HealthChecks/
+        configureOptions: o =>
     {
         o.ConnectTimeout = 1000;
         o.SyncTimeout = 1000;
@@ -37,7 +41,10 @@ else
 builder.Services.AddSingleton<CacheMetrics>();
 builder.Services.AddSingleton<ITwoLevelCache, TwoLevelCache>();
 builder.Services.AddHostedService<CacheWarmupService>();
-builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache");
+
+// Lab 07: business metrics and health checks (database Unhealthy, Redis Degraded)
+builder.Services.AddSingleton<CatalogMetrics>();
+builder.Services.AddCatalogHealthChecks(builder.Configuration);
 
 // BLL
 builder.Services.AddScoped<IEventService, EventService>();
@@ -56,7 +63,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.MapDefaultEndpoints();                       // /health and /alive
+app.MapDefaultEndpoints();                       // /health, /alive, /health/live, /health/ready
 
 // migrations + idempotent seed; seed can be switched off (e.g. in Production) with Seeding:Enabled=false
 using (var scope = app.Services.CreateScope())
@@ -77,5 +84,6 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();
+app.MapGrpcHealthChecksService();               // grpc.health.v1.Health for the Aggregator
 
 app.Run();

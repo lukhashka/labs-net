@@ -1,14 +1,16 @@
 using Microsoft.AspNetCore.Mvc;
+using Orders.Api.Metrics;
 using Orders.Bll.Dtos;
 using Orders.Bll.Services;
 
 namespace Orders.Api.Controllers;
 
 // Thin adapter: no SQL and no business rules. Errors are converted by DomainExceptionHandler.
+// Write operations are measured (orders.operation.duration) and counted after success (Lab 07).
 [ApiController]
 [Route("api/orders")]
 [Produces("application/json")]
-public class OrdersController(IOrderService orders) : ControllerBase
+public class OrdersController(IOrderService orders, OrderMetrics metrics) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType<PagedResult<OrderSummaryDto>>(StatusCodes.Status200OK)]
@@ -30,7 +32,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<OrderDto>> Create(CreateOrderDto input, CancellationToken ct)
     {
-        var created = await orders.CreateAsync(input, ct);
+        var created = await metrics.MeasureAsync("create", () => orders.CreateAsync(input, ct));
+        metrics.OrderCreated(created.Status, created.Items.Sum(i => i.Units));
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -40,7 +43,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Confirm(long id, CancellationToken ct)
     {
-        await orders.ConfirmOrderAsync(id, ct);
+        await metrics.MeasureAsync("confirm", () => orders.ConfirmOrderAsync(id, ct));
+        metrics.StatusChanged("StockConfirmed");
         return NoContent();
     }
 
@@ -50,7 +54,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangeStatus(long id, ChangeStatusDto input, CancellationToken ct)
     {
-        await orders.ChangeStatusAsync(id, input.Status, ct);
+        await metrics.MeasureAsync("change-status", () => orders.ChangeStatusAsync(id, input.Status, ct));
+        metrics.StatusChanged(input.Status);
         return NoContent();
     }
 
@@ -60,7 +65,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Cancel(long id, CancellationToken ct)
     {
-        await orders.CancelAsync(id, ct);
+        await metrics.MeasureAsync("cancel", () => orders.CancelAsync(id, ct));
+        metrics.StatusChanged("Cancelled");
         return NoContent();
     }
 
@@ -70,7 +76,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RegisterPayment(long id, RegisterPaymentDto input, CancellationToken ct)
     {
-        await orders.RegisterPaymentAsync(id, input, ct);
+        await metrics.MeasureAsync("pay", () => orders.RegisterPaymentAsync(id, input, ct));
+        metrics.StatusChanged("Paid");
         return NoContent();
     }
 
@@ -80,7 +87,8 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> IssueTickets(long id, CancellationToken ct)
     {
-        await orders.IssueTicketsAsync(id, ct);
+        await metrics.MeasureAsync("issue-tickets", () => orders.IssueTicketsAsync(id, ct));
+        metrics.StatusChanged("Shipped");
         return NoContent();
     }
 
@@ -89,7 +97,7 @@ public class OrdersController(IOrderService orders) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(long id, CancellationToken ct)
     {
-        await orders.DeleteAsync(id, ct);
+        await metrics.MeasureAsync("delete", () => orders.DeleteAsync(id, ct));
         return NoContent();
     }
 }

@@ -174,6 +174,100 @@ dotnet run --project Platform.AppHost --launch-profile http -- --Benchmark:Cache
 
 ---
 
+## Resilience, метрики й health checks (Лаб. 07)
+
+### Resilience
+
+Усі `HttpClient` отримують Standard Resilience Handler із `ConfigureHttpClientDefaults` у `Platform.ServiceDefaults`: rate limiter, загальний таймаут, retry з jitter, circuit breaker і таймаут спроби. POST, PUT і DELETE за замовчуванням не повторюються (`DisableForUnsafeHttpMethods`), щоб не створити замовлення двічі.
+
+gRPC-клієнти Aggregator (`Platform.Aggregator/Resilience`) спершу прибирають цей обробник (`RemoveAllResilienceHandlers`) і додають власний, тож обробники не нашаровуються. Захист має три рівні:
+
+1. **Дедлайн виклику gRPC** обмежує весь виклик разом із повторами.
+2. **`RetryPolicy` у `ServiceConfig` каналу** повторює статуси, які повертає працюючий сервер: `Unavailable`, `ResourceExhausted`. HTTP-обробник їх не бачить, бо gRPC повертає їх у трейлерах із HTTP 200.
+3. **Polly всередині однієї gRPC-спроби** відповідає за таймаут спроби, мережеві повтори з експоненційною затримкою і jitter та circuit breaker. Повтори для POST тут дозволені, бо всі методи цих клієнтів лише читають дані.
+
+| Параметр | orders-api | catalog-api | reviews-api |
+|---|---|---|---|
+| Критичність | критичний | критичний | некритичний |
+| Дедлайн виклику | 6 с | 6 с | 2 с |
+| gRPC MaxAttempts / InitialBackoff | 4 / 300 мс | 4 / 300 мс | 2 / 200 мс |
+| Мережеві повтори Polly / затримка | 2 / 200 мс | 2 / 200 мс | 1 / 100 мс |
+| Таймаут спроби | 1,5 с | 1,5 с | 0,5 с |
+| FailureRatio / MinimumThroughput | 0,3 / 10 | 0,3 / 10 | 0,7 / 10 |
+| SamplingDuration / BreakDuration | 30 с / 15 с | 30 с / 15 с | 30 с / 30 с |
+
+Чому саме ці значення:
+
+- **orders-api.** Без замовлення картку не зібрати, тому Aggregator повертає 503. Сервіс має більше спроб, а breaker розмикається вже при 30 % збоїв. Так система швидше перестає чекати сервіс, який систематично відмовляє.
+- **catalog-api.** Без подій картка замовлення й сторінка події втрачають основний зміст. Політика та сама, що в Orders.
+- **reviews-api.** Рейтинги не обов'язкові, і без них Aggregator повертає часткову відповідь (Лаб. 05). Тому сервіс швидко здається (дедлайн 2 с), терпить більше збоїв до розмикання (70 %) і отримує 30 с на відновлення.
+- **Таймаути узгоджено.** Усі спроби Polly вміщуються в дедлайн: 1,5 × 3 + 0,2 + 0,4 = 5,1 с < 6 с; 0,5 × 2 + 0,1 = 1,1 с < 2 с. `DownstreamPolicy.EnsureConsistent` перевіряє це під час старту. Якби останню спробу обривав дедлайн, breaker рахував би скасування як успіх і ніколи б не розімкнувся.
+- **Мінімальна пропускна здатність 10.** На навчальному стенді мало трафіку: за стандартних 100 запитів breaker тут не спрацював би.
+
+Кеш Redis необов'язковий. Його збій перехоплюється й логується, а дані читаються з бази. Після збою Redis 30 с не використовується, щоб запити не чекали його таймауту.
+
+### Бізнес-метрики
+
+Метрики реєструються через `IMeterFactory` як Singleton. Meter-и додано в ServiceDefaults разом із `Polly`.
+
+| Meter | Інструмент | Тип | Теги |
+|---|---|---|---|
+| `Orders.Api` | `orders.created`, `orders.tickets.ordered` | Counter | `order.status` |
+| | `orders.status.changed` | Counter | `order.status` |
+| | `orders.operation.duration` | Histogram, мс | `operation`, `status`, `error.type` |
+| | `orders.current` | ObservableGauge | `order.status` |
+| `Catalog.Api` | `products.created`, `products.published`, `products.price_changed` | Counter | `event.status` |
+| | `products.operation.duration` | Histogram, мс | `operation`, `status`, `error.type` |
+| | `products.cache.entries` | ObservableGauge | — |
+| `Reviews.WebApi` | `reviews.created`, `reviews.comments.added` | Counter | `review.rating` |
+| | `reviews.operation.duration` | Histogram, мс | `operation`, `status`, `error.type` |
+
+Тривалість записується і для успішних, і для невдалих операцій. Теги мають мало значень і не містять Id користувачів, подій чи замовлень, бо кожна комбінація тегів утворює окремий часовий ряд. Gauge `orders.current` читає знімок, який фоновий сервіс оновлює раз на 15 с одним запитом `GROUP BY`.
+
+Нормальні значення на стенді: `orders.operation.duration` до 100 мс; `resilience.polly.strategy.events` з `OnRetry` близько нуля. Зростання повторів або `OnCircuitOpened` означає проблему в сервісі, до якого звертаються.
+
+### Health checks
+
+| Endpoint | Що перевіряє | Для чого |
+|---|---|---|
+| `/health/live`, `/alive` | лише процес (тег `live`) | liveness: збій перезапускає процес |
+| `/health/ready` | залежності з тегом `ready`, JSON з деталями | readiness: збій виключає з балансування |
+| `/health` | усі перевірки | стан ресурсу в Aspire Dashboard (`WithHttpHealthCheck`) |
+
+Ендпоінти доступні в усіх середовищах, бо вони знадобляться пробам Kubernetes у Лаб. 10. Відповідь містить лише назви, статуси й тривалість перевірок, без рядків підключення.
+
+| Сервіс | Перевірка | Статус при збої | Теги |
+|---|---|---|---|
+| orders-api | `orders-db` (SQL Server, `SELECT 1`, 5 с) | Unhealthy | `database`, `sql`, `ready` |
+| catalog-api | `catalog-db` (SQL Server, `SELECT 1`, 5 с) | Unhealthy | `database`, `sql`, `ready` |
+| catalog-api | `redis-cache` (PING, 3 с) | Degraded | `cache`, `redis`, `ready` |
+| reviews-api | `reviews-db` (MongoDB ping, 5 с) | Unhealthy | `database`, `mongodb`, `ready` |
+| aggregator | `orders-api`, `catalog-api` (gRPC Health, 2 с) | Unhealthy | `grpc`, `downstream`, `ready` |
+| aggregator | `reviews-api` (gRPC Health, 2 с) | Degraded | `grpc`, `downstream`, `ready` |
+| aggregator | `redis-cache` (PING, 3 с) | Degraded | `cache`, `redis`, `ready` |
+
+Сервіси відповідають за стандартним gRPC Health Checking Protocol (`MapGrpcHealthChecksService`) на основі перевірок `ready`. Catalog виключає з нього кеш: Redis, що завис, не повинен робити весь сервіс недоступним для Aggregator.
+
+### Перевірка
+
+```bash
+curl http://localhost:5105/health/ready                     # catalog: catalog-db і redis-cache
+curl http://localhost:5163/health/ready                     # aggregator: залежності через gRPC Health
+curl http://localhost:5000/api/aggregator/orders/1/full     # зупиніть reviews-api в Dashboard і повторіть
+```
+
+| Сценарій | Результат |
+|---|---|
+| Зупинено reviews-api | перші 5 відповідей 200 з `warnings` за ~1,15 с, далі breaker розімкнено й відповідь за 15–30 мс |
+| reviews-api запущено знову | у логах `opened` → `half-open` → `closed`, відповіді знову повні |
+| Зупинено Redis | `/health/ready` Catalog і Aggregator мають статус Degraded з кодом 200; агрегація після першого запиту триває 30–50 мс |
+| Зупинено SQL Server | `/health/live` відповідає 200 за 15 мс, `/health/ready` — 503 (`orders-db: Unhealthy`) |
+| Створено три замовлення | `orders.created{order.status=Submitted}` = 3, `orders.current` показує кількість замовлень за статусами |
+
+Відоме обмеження: перший запит одразу після падіння Redis може повернути попередження про catalog-api. Catalog чекає таймаут Redis довше, ніж триває спроба Aggregator. Наступні запити вже йдуть без Redis.
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```
