@@ -6,6 +6,8 @@ using Catalog.Dal;
 using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
 using Microsoft.Extensions.Logging;
+using Platform.EventBus;
+using Platform.EventBus.Events;
 
 namespace Catalog.Bll.Services;
 
@@ -16,12 +18,14 @@ public interface IEventService
     Task<IReadOnlyList<EventDto>> GetUpcomingByVenueAsync(int venueId, CancellationToken ct = default);
     Task<EventDetailsDto> CreateAsync(CreateEventDto input, CancellationToken ct = default);
     Task RescheduleAsync(int id, RescheduleEventDto input, CancellationToken ct = default);
+    Task RenameAsync(int id, string title, CancellationToken ct = default);
     Task PublishAsync(int id, CancellationToken ct = default);
     Task DeleteAsync(int id, CancellationToken ct = default);
 }
 
 // Services work only through IUnitOfWork — no DbContext here
-public class EventService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache, ILogger<EventService> logger) : IEventService
+public class EventService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache,
+    ICorrelationIdAccessor correlation, ILogger<EventService> logger) : IEventService
 {
     public async Task<PagedResult<EventDto>> GetListAsync(EventQuery query, CancellationToken ct = default)
     {
@@ -89,9 +93,24 @@ public class EventService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache,
     {
         var ev = await uow.Events.GetByIdAsync(id, ct) ?? throw new EntityNotFoundException(nameof(Event), id);
         ev.Reschedule(input.StartsAt, input.EndsAt);
+        uow.AddIntegrationEvent(new EventRescheduledEvent(id, input.StartsAt, input.EndsAt) { CorrelationId = correlation.CorrelationId },
+            CatalogEvents.EventRescheduled);
         await uow.SaveChangesAsync(ct);
         logger.LogInformation("Event {EventId} rescheduled to {StartsAt}", id, input.StartsAt);
         await InvalidateAsync(id, "EventRescheduled", ct);
+    }
+
+    // Lab 08: the title is copied by Orders (TicketTypes.EventTitle) and Reviews (eventTitle), see the duplication policy
+    public async Task RenameAsync(int id, string title, CancellationToken ct = default)
+    {
+        var ev = await uow.Events.GetByIdAsync(id, ct) ?? throw new EntityNotFoundException(nameof(Event), id);
+        var oldTitle = ev.Title;
+        ev.Rename(title);
+        uow.AddIntegrationEvent(new EventRenamedEvent(id, oldTitle, ev.Title) { CorrelationId = correlation.CorrelationId },
+            CatalogEvents.EventRenamed);
+        await uow.SaveChangesAsync(ct);
+        logger.LogInformation("Event {EventId} renamed from {OldTitle} to {NewTitle}", id, oldTitle, ev.Title);
+        await InvalidateAsync(id, "EventRenamed", ct);
     }
 
     public async Task PublishAsync(int id, CancellationToken ct = default)

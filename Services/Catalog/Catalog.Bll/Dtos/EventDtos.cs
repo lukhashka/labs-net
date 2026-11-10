@@ -22,3 +22,5 @@ public record CreateEventDto(
     List<int>? CategoryIds);
 
 public record RescheduleEventDto(DateTime StartsAt, DateTime EndsAt);
+
+public record RenameEventDto([System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.StringLength(200, MinimumLength = 3)] string Title);

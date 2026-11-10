@@ -18,6 +18,11 @@ public abstract class RepositoryBase(SqlConnection connection, Func<SqlTransacti
             await Connection.OpenAsync(ct);
     }
 
+    // Every call carries the UoW transaction and the cancellation token
+    protected CommandDefinition Command(string sql, object? parameters, CancellationToken ct,
+        CommandType commandType = CommandType.Text)
+        => new(sql, parameters, Transaction, commandType: commandType, cancellationToken: ct);
+
     // SQL error numbers become domain exceptions here, raw SQL messages never reach the API
     protected static Exception Translate(SqlException ex) => ex.Number switch
     {
@@ -71,9 +76,4 @@ public abstract class BaseDapperRepository<T>(
         await EnsureOpenAsync(ct);
         return await Connection.ExecuteAsync(Command($"DELETE FROM {TableName} WHERE Id = @Id", new { Id = id }, ct)) > 0;
     }
-
-    // Every call carries the UoW transaction and the cancellation token
-    protected CommandDefinition Command(string sql, object? parameters, CancellationToken ct,
-        CommandType commandType = CommandType.Text)
-        => new(sql, parameters, Transaction, commandType: commandType, cancellationToken: ct);
 }

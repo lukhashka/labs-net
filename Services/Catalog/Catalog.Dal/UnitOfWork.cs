@@ -1,5 +1,7 @@
+using Catalog.Dal.Outbox;
 using Catalog.Dal.Repositories;
 using Catalog.Domain.Entities;
+using Platform.EventBus.Events;
 
 namespace Catalog.Dal;
 
@@ -13,6 +15,12 @@ public interface IUnitOfWork
 
     // the only place where changes go to the DB — one transaction per business operation
     Task<int> SaveChangesAsync(CancellationToken ct = default);
+
+    // Lab 08: the event is saved by the same SaveChanges as the change itself (transactional outbox)
+    void AddIntegrationEvent<T>(T @event, string routingKey) where T : IntegrationEvent;
+
+    // For an operation that needs two SaveChanges, e.g. the id of a new row is part of the event
+    Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken ct = default);
 }
 
 public class UnitOfWork : IUnitOfWork
@@ -37,4 +45,14 @@ public class UnitOfWork : IUnitOfWork
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => _context.SaveChangesAsync(ct);
+
+    public void AddIntegrationEvent<T>(T @event, string routingKey) where T : IntegrationEvent
+        => _context.OutboxMessages.Add(OutboxMessage.Create(@event, CatalogEvents.Exchange, routingKey));
+
+    public async Task ExecuteInTransactionAsync(Func<Task> operation, CancellationToken ct = default)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        await operation();
+        await transaction.CommitAsync(ct);          // without the commit the transaction is rolled back on dispose
+    }
 }

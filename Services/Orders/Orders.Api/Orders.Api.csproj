@@ -18,6 +18,7 @@
     <ProjectReference Include="..\Orders.Bll\Orders.Bll.csproj" />
     <ProjectReference Include="..\Orders.Dal\Orders.Dal.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\..\Platform.EventBus\Platform.EventBus.csproj" />
   </ItemGroup>
 
   <ItemGroup>

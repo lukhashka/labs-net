@@ -1,3 +1,4 @@
+using Catalog.Dal.Outbox;
 using Catalog.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +12,7 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<EventCategory> EventCategories => Set<EventCategory>();
     public DbSet<TicketType> TicketTypes => Set<TicketType>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();     // Lab 08
 
     // all IEntityTypeConfiguration<T> from Configurations/ are applied here in one place
     protected override void OnModelCreating(ModelBuilder modelBuilder)

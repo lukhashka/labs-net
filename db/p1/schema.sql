@@ -70,6 +70,12 @@ CREATE TABLE dbo.TicketTypes (
 );
 GO
 
+-- Lab 08: time of the last applied change of the EVENT fields (EventTitle, EventStartsAt) of the copy.
+-- SourceUpdatedAt guards the fields of the ticket type; two columns, so a late rename does not block a price change.
+IF COL_LENGTH(N'dbo.TicketTypes', N'EventSourceUpdatedAt') IS NULL
+    ALTER TABLE dbo.TicketTypes ADD EventSourceUpdatedAt DATETIME2 NULL;
+GO
+
 -- M:N Orders <-> TicketTypes. EventTitle/TicketTypeName/UnitPrice are a snapshot at order time, never updated.
 IF OBJECT_ID(N'dbo.OrderItems', N'U') IS NULL
 CREATE TABLE dbo.OrderItems (

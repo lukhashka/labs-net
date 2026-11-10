@@ -23,7 +23,7 @@ public static class Extensions
 
     // Meters of all services: business metrics (Lab 07), cache metrics (Lab 06) and resilience events of Polly
     private static readonly string[] Meters =
-        ["Orders.Api", "Catalog.Api", "Reviews.WebApi", "Catalog.Cache", "Aggregator.Cache", "Polly"];
+        ["Orders.Api", "Catalog.Api", "Reviews.WebApi", "Catalog.Cache", "Aggregator.Cache", "Polly", "Platform.Messaging"];
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -97,6 +97,7 @@ public static class Extensions
                 tracing.SetSampler(new ParentBasedSampler(new TraceIdRatioBasedSampler(ratio)))
                     .AddSource(builder.Environment.ApplicationName)                     // own spans of business operations
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")      // MongoDB
+                    .AddSource("Platform.Messaging")                                    // publish and process of RabbitMQ messages (Lab 08)
                     .AddAspNetCoreInstrumentation(o =>
                     {
                         o.RecordException = true;

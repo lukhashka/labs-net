@@ -9,6 +9,8 @@ public interface IUnitOfWork : IAsyncDisposable
     ICustomerRepository Customers { get; }
     IOrderRepository Orders { get; }
     ITicketTypeRepository TicketTypes { get; }
+    ICatalogReplicaRepository CatalogReplica { get; }    // Lab 08: copy of the Catalog reference
+    IProcessedEventRepository ProcessedEvents { get; }   // Lab 08: idempotency of consumers
 
     Task BeginTransactionAsync(IsolationLevel level = IsolationLevel.ReadCommitted, CancellationToken ct = default);
     Task CommitAsync(CancellationToken ct = default);
@@ -32,11 +34,15 @@ public sealed class UnitOfWork : IUnitOfWork
         Customers = new CustomerRepository(_connection, () => _transaction);
         Orders = new OrderRepository(_connection, () => _transaction);
         TicketTypes = new TicketTypeRepository(_connection, () => _transaction);
+        CatalogReplica = new CatalogReplicaRepository(_connection, () => _transaction);
+        ProcessedEvents = new ProcessedEventRepository(_connection, () => _transaction);
     }
 
     public ICustomerRepository Customers { get; }
     public IOrderRepository Orders { get; }
     public ITicketTypeRepository TicketTypes { get; }
+    public ICatalogReplicaRepository CatalogReplica { get; }
+    public IProcessedEventRepository ProcessedEvents { get; }
 
     public async Task BeginTransactionAsync(IsolationLevel level = IsolationLevel.ReadCommitted, CancellationToken ct = default)
     {

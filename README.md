@@ -268,6 +268,65 @@ curl http://localhost:5000/api/aggregator/orders/1/full     # зупиніть r
 
 ---
 
+## Події та RabbitMQ (Лаб. 08)
+
+Каталог є власником подій і типів квитків. Коли змінюється поле, копію якого тримають інші сервіси (таблиця «Політика дублювання» вище), Каталог публікує подію, а Orders і Reviews оновлюють свої копії. Код брокера лежить у `Platform.EventBus`, обробники — в `Services/*/*.Api/IntegrationEvents` (у Reviews — `Reviews.WebApi/IntegrationEvents`).
+
+| Подія | Routing key | Хто споживає | Що оновлюється |
+|---|---|---|---|
+| `TicketTypeCreatedEvent` | `ticket-type.created` | orders-api | новий рядок `TicketTypes`, `Stock = Capacity` |
+| `TicketTypePriceChangedEvent` | `ticket-type.price_changed` | orders-api | `TicketTypes.Name`, `Price`; `OrderItems.UnitPrice` не змінюється |
+| `TicketTypeDeletedEvent` | `ticket-type.deleted` | orders-api | `Stock = 0`: рядок лишається, бо на нього посилаються замовлення |
+| `EventRenamedEvent` | `event.renamed` | orders-api, reviews-api | `TicketTypes.EventTitle`; `eventTitle` в усіх reviews і discussions |
+| `EventRescheduledEvent` | `event.rescheduled` | orders-api | `TicketTypes.EventStartsAt` |
+
+### Топологія
+
+| Об'єкт | Тип | Призначення |
+|---|---|---|
+| `catalog-events` | topic, durable | усі події Каталогу |
+| `orders.catalog-sync` | черга, bindings `ticket-type.*`, `event.*` | копія довідника в OrdersDb |
+| `reviews.catalog-sync` | черга, binding `event.renamed` | назва події в ReviewsDb |
+| `catalog-events.dlx` | direct | dead letter exchange, routing key дорівнює імені черги |
+| `orders.catalog-sync.dlq`, `reviews.catalog-sync.dlq` | черги | повідомлення для ручного розбору |
+
+Топологію оголошує код під час старту. DLX має тип direct, а не fanout, тому повідомлення, відхилене чергою Orders, не потрапляє в DLQ Reviews.
+
+### Надійність
+
+- **Transactional outbox у Каталозі.** Подія записується в таблицю `OutboxMessages` тим самим `SaveChanges`, що й зміна. `OutboxPublisher` надсилає її в RabbitMQ лише після commit і з підтвердженням брокера (publisher confirms). Якщо транзакція не вдалася, події немає; якщо застосунок упав після commit, подія не губиться.
+- **Формат повідомлення.** JSON у camelCase; `Persistent`, `MessageId = EventId`, `Type`; заголовки `x-correlation-id`, `x-schema-version`, `traceparent`.
+- **Consumer.** `BackgroundService` на базі `RabbitMqConsumer`: `BasicQos(10)`, `AsyncEventingBasicConsumer`, `autoAck: false`, коректна зупинка.
+- **Рішення щодо повідомлення.** Успіх дає `BasicAck`. Некоректний JSON, невідомий тип, новіша версія схеми або недійсні дані одразу дають `BasicNack(requeue: false)` і DLQ. Тимчасовий збій (БД недоступна) повторюється до 3 разів: копія перепублікується зі збільшеним `x-retry-count` через default exchange прямо в чергу цього сервісу, а оригінал підтверджується. Після трьох спроб повідомлення йде в DLQ.
+- **Ідемпотентність.** Orders записує `EventId` у `dbo.ProcessedEvents` (PRIMARY KEY) у тій самій транзакції, що й зміну. У Reviews MongoDB працює без replica set, тому транзакцій немає. Кроки впорядковано так, що повтор безпечний: перевірка `processedEvents`, перевірка версії, `UpdateMany`, а потім запис часу зміни й `EventId`.
+- **Порядок подій.** Нова зміна застосовується, лише якщо вона новіша за застосовану: `TicketTypes.SourceUpdatedAt` для полів типу квитка, `EventSourceUpdatedAt` для полів події, колекція `catalogSync` у Reviews.
+- **Трасування.** Контекст іде в заголовку `traceparent`. Outbox зберігає його в рядку, тому trace HTTP-запиту продовжується у фоновому publisher. Consumer створює span типу Consumer з тегами `messaging.*`, а `ServiceDefaults` слухає джерело `Platform.Messaging`.
+- **Метрики.** `messaging.messages.handled` (теги `result` = ack / retry / dead_letter) і gauge `messaging.dlq.depth`.
+
+### Перевірка
+
+```bash
+curl -X PUT -H "Content-Type: application/json" -d '{"price":160}' http://localhost:5000/api/ticket-types/1/price
+curl http://localhost:5103/api/tickets/1          # копія в Orders: 160
+curl http://localhost:5103/api/orders/1           # позиції замовлення: стара ціна 150
+curl -X PUT -H "Content-Type: application/json" -d '{"title":"CampusHack 2026: Final"}' http://localhost:5000/api/events/2/title
+curl "http://localhost:5102/api/reviews?eventId=2"  # eventTitle оновлено
+```
+
+Management UI відкривається з Aspire Dashboard (ресурс `messaging`, endpoint management).
+
+| Сценарій | Результат |
+|---|---|
+| Зміна ціни типу 1 | копія в Orders 150 → 160 за ~1 с; у замовленні 1 лишилось 150 |
+| Перейменування події 2 | `eventTitle` у 2 відгуках і `EventTitle` двох типів квитків в Orders оновлено |
+| Та сама подія двічі (той самий `EventId`, друга з ціною 999) | друга пропущена, ціна лишилась 410 |
+| Некоректний JSON через Management API | `orders.catalog-sync.dlq` має 1 повідомлення з `x-death: rejected`, DLQ Reviews порожня |
+| orders-api зупинено, змінено три ціни, запущено | після старту всі три зміни застосовано |
+| SQL Server зупинено під час обробки | у логах `retry 1 of 3` … `retry 3 of 3`, потім `sent to DLQ` |
+| Trace перейменування | один trace: gateway → catalog-api (SELECT, UPDATE) → publish → orders-api і reviews-api (find, update reviews, update discussions) |
+
+---
+
 ## Catalog (Лаб. 03) — EF Core
 
 ```

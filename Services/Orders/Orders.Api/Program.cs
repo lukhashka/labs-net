@@ -1,11 +1,13 @@
 using Orders.Api.ErrorHandling;
 using Orders.Api.GrpcServices;
 using Orders.Api.HealthChecks;
+using Orders.Api.IntegrationEvents;
 using Orders.Api.Metrics;
 using Orders.Bll.Mapping;
 using Orders.Bll.Services;
 using Orders.Dal;
 using Orders.Dal.Infrastructure;
+using Platform.EventBus;
 using Platform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +31,10 @@ builder.Services.AddSingleton<OrderStatusSnapshot>();
 builder.Services.AddSingleton<OrderMetrics>();
 builder.Services.AddHostedService<OrderStatusRefresher>();
 builder.Services.AddOrdersHealthChecks(connectionString);
+
+// Lab 08: RabbitMQ (AddRabbitMQClient("messaging") inside) and the consumer of the Catalog events
+builder.AddEventBus();
+CatalogEventsConsumer.Register(builder.Services);
 
 builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 builder.Services.AddControllers();

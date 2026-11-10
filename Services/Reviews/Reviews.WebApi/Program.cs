@@ -1,9 +1,11 @@
+using Platform.EventBus;
 using Platform.ServiceDefaults;
 using Reviews.Application;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using Reviews.WebApi.GrpcServices;
 using Reviews.WebApi.HealthChecks;
+using Reviews.WebApi.IntegrationEvents;
 using Reviews.WebApi.Metrics;
 using Reviews.WebApi;
 
@@ -26,6 +28,10 @@ builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
 // Lab 07: business metrics and health check of MongoDB
 builder.Services.AddSingleton<ReviewMetrics>();
 builder.Services.AddReviewsHealthChecks();
+
+// Lab 08: RabbitMQ and the consumer of the Catalog events (copy of the event title)
+builder.AddEventBus();
+CatalogEventsConsumer.Register(builder.Services);
 
 var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();

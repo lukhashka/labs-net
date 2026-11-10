@@ -5,6 +5,8 @@ using Catalog.Dal;
 using Catalog.Domain.Entities;
 using Catalog.Domain.Exceptions;
 using Microsoft.Extensions.Logging;
+using Platform.EventBus;
+using Platform.EventBus.Events;
 
 namespace Catalog.Bll.Services;
 
@@ -19,7 +21,10 @@ public interface ITicketTypeService
     Task DeleteAsync(int id, CancellationToken ct = default);
 }
 
-public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache, ILogger<TicketTypeService> logger) : ITicketTypeService
+// Lab 08: every change of a ticket type that other services copy is written to the outbox in the same
+// transaction. If SaveChanges fails, there is no event; the publisher sends it only after the commit.
+public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache cache,
+    ICorrelationIdAccessor correlation, ILogger<TicketTypeService> logger) : ITicketTypeService
 {
     public async Task<PagedResult<TicketTypeDto>> GetListAsync(TicketTypeQuery query, CancellationToken ct = default)
     {
@@ -37,12 +42,21 @@ public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache c
     {
         if (await uow.TicketTypes.ExistsByCodeAsync(input.Code, ct))
             throw new ConflictException($"Ticket type with code '{input.Code}' already exists");
-        _ = await uow.Events.GetByIdAsync(input.EventId, ct)
+        var ev = await uow.Events.GetByIdAsync(input.EventId, ct)
             ?? throw new EntityNotFoundException(nameof(Event), input.EventId);
 
         var ticketType = new TicketType(input.EventId, input.Name, input.Code, input.Price, input.Capacity);
-        await uow.TicketTypes.AddAsync(ticketType, ct);
-        await uow.SaveChangesAsync(ct);
+
+        // The id of the new row is a part of the event, so two SaveChanges in one transaction
+        await uow.ExecuteInTransactionAsync(async () =>
+        {
+            await uow.TicketTypes.AddAsync(ticketType, ct);
+            await uow.SaveChangesAsync(ct);
+            uow.AddIntegrationEvent(new TicketTypeCreatedEvent(ticketType.Id, ev.Id, ev.Title, ev.StartsAt,
+                ticketType.Name, ticketType.Price, ticketType.Capacity) { CorrelationId = correlation.CorrelationId },
+                CatalogEvents.TicketTypeCreated);
+            await uow.SaveChangesAsync(ct);
+        }, ct);
         await InvalidateAsync(ticketType.EventId, "TicketTypeCreated", ct);
         return mapper.Map<TicketTypeDto>(ticketType);
     }
@@ -50,8 +64,11 @@ public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache c
     public async Task<TicketTypeDto> ChangePriceAsync(int id, decimal price, CancellationToken ct = default)
     {
         var ticketType = await GetEntityAsync(id, ct);
-        ticketType.ChangePrice(price);
-        await uow.SaveChangesAsync(ct);
+        var oldPrice = ticketType.Price;
+        ticketType.ChangePrice(price);                      // invariant in the entity
+        uow.AddIntegrationEvent(new TicketTypePriceChangedEvent(id, ticketType.EventId, ticketType.Name, oldPrice, price)
+            { CorrelationId = correlation.CorrelationId }, CatalogEvents.TicketTypePriceChanged);
+        await uow.SaveChangesAsync(ct);                     // the change and the event in one transaction
         logger.LogInformation("Ticket type {TicketTypeId} price changed to {Price}", id, price);
         await InvalidateAsync(ticketType.EventId, "PriceChanged", ct);
         return mapper.Map<TicketTypeDto>(ticketType);
@@ -79,6 +96,8 @@ public class TicketTypeService(IUnitOfWork uow, IMapper mapper, ITwoLevelCache c
     {
         var ticketType = await GetEntityAsync(id, ct);
         uow.TicketTypes.Delete(ticketType);
+        uow.AddIntegrationEvent(new TicketTypeDeletedEvent(id, ticketType.EventId) { CorrelationId = correlation.CorrelationId },
+            CatalogEvents.TicketTypeDeleted);
         await uow.SaveChangesAsync(ct);
         await InvalidateAsync(ticketType.EventId, "TicketTypeDeleted", ct);
     }

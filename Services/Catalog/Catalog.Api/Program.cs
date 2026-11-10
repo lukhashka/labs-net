@@ -1,5 +1,6 @@
 using Catalog.Api.GrpcServices;
 using Catalog.Api.HealthChecks;
+using Catalog.Api.IntegrationEvents;
 using Catalog.Api.Metrics;
 using Catalog.Api.Infrastructure;
 using Catalog.Api.Middleware;
@@ -11,6 +12,7 @@ using Catalog.Bll.Validation;
 using Catalog.Dal;
 using Catalog.Dal.Seeding;
 using FluentValidation;
+using Platform.EventBus;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -45,6 +47,10 @@ builder.Services.AddHostedService<CacheWarmupService>();
 // Lab 07: business metrics and health checks (database Unhealthy, Redis Degraded)
 builder.Services.AddSingleton<CatalogMetrics>();
 builder.Services.AddCatalogHealthChecks(builder.Configuration);
+
+// Lab 08: RabbitMQ connection, publisher and the background sender of the outbox
+builder.AddEventBus();
+builder.Services.AddHostedService<OutboxPublisher>();
 
 // BLL
 builder.Services.AddScoped<IEventService, EventService>();

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- RabbitMQ for the whole platform: connection, topology, publisher, consumer base class, trace propagation.
+       Event contracts are here too: publisher and consumers serialize the same records. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Aspire.RabbitMQ.Client" Version="13.6.4" />
+    <PackageReference Include="OpenTelemetry.Api" Version="1.17.0" />
+  </ItemGroup>
+
+</Project>

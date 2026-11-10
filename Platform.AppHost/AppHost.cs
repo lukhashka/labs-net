@@ -12,6 +12,12 @@ var reviewsDb = mongo.AddDatabase("ReviewsDb");             // Lab 04
 
 var redis = builder.AddRedis("redis").WithDataVolume();
 
+// Lab 08: the message broker. The volume keeps queued messages over restarts, the management UI shows
+// exchanges, queues and DLQs. Aspire generates the user and the password.
+var messaging = builder.AddRabbitMQ("messaging")
+    .WithDataVolume()
+    .WithManagementPlugin();
+
 // Benchmark:CacheEnabled=false switches caches off for a fair comparison of HTTP and gRPC
 var cacheEnabled = builder.Configuration["Benchmark:CacheEnabled"] ?? "true";
 
@@ -21,16 +27,19 @@ var cacheEnabled = builder.Configuration["Benchmark:CacheEnabled"] ?? "true";
 // The https profile: gRPC needs HTTP/2, on Kestrel it is negotiated over TLS (ALPN). REST stays on the same service.
 var orders = builder.AddProject<Projects.Orders_Api>("orders-api", launchProfileName: "https")
     .WithReference(ordersDb).WaitFor(ordersDb)
+    .WithReference(messaging).WaitFor(messaging)              // consumes Catalog events
     .WithHttpHealthCheck("/health", endpointName: "http");
 
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api", launchProfileName: "https")
     .WithReference(catalogDb).WaitFor(catalogDb)
+    .WithReference(messaging).WaitFor(messaging)              // publishes events from its outbox
     .WithReference(redis).WaitFor(redis)
     .WithEnvironment("Caching__Enabled", cacheEnabled)
     .WithHttpHealthCheck("/health", endpointName: "http");
 
 var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api", launchProfileName: "https")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
+    .WithReference(messaging).WaitFor(messaging)              // consumes Catalog events
     .WithHttpHealthCheck("/health", endpointName: "http");
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")

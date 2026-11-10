@@ -67,6 +67,16 @@ public class EventsController(IEventService service, CatalogMetrics metrics) : C
         return NoContent();
     }
 
+    [HttpPut("{id:int}/title")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Rename(int id, RenameEventDto input, CancellationToken ct)
+    {
+        await metrics.MeasureAsync("rename", () => service.RenameAsync(id, input.Title, ct));
+        return NoContent();
+    }
+
     [HttpPost("{id:int}/publish")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]

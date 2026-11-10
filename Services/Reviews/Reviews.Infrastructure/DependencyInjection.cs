@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IReviewRepository, ReviewRepository>();
         services.AddScoped<IDiscussionRepository, DiscussionRepository>();
         services.AddScoped<IReviewQueries, ReviewQueries>();
+        services.AddScoped<ICatalogReplica, CatalogReplica>();            // Lab 08
 
         services.AddScoped<IDataSeeder, ReviewSeeder>();
         services.AddHostedService<IndexCreationService>();
