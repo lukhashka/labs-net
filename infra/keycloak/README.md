@@ -17,6 +17,30 @@ Pulumi-проєкт описує realm `DevRealmDrivers` у Keycloak, який �
 - Clients `orders.postman` (Authorization Code + PKCE), `orders.swagger` (public, PKCE) і `orders.aggregator` (Client Credentials, client-роль `service-reader` для service account). Усі мають audience mappers на resource servers.
 - Користувачі `alice.admin`, `john.manager`, `carol.user`, `dave.guest` з підтвердженим email і тимчасовим паролем.
 
+## Результат перевірки
+
+`pulumi up` створив 63 ресурси. Для кожного користувача отримано RPT для кожного resource server, і запити пройшли через Gateway (`http://localhost:5022`). Коди відповідей:
+
+| Ендпоінт | Permission | admin | manager | user | guest |
+|---|---|---|---|---|---|
+| `GET /api/orders` | `orders:read` | 200 | 200 | 200 | 403 |
+| `POST /api/orders` (порожнє тіло) | `orders:create` | 400 | 403 | 400 | 403 |
+| `POST /api/orders/999999/approve` | `orders:approve` | 404 | 404 | 403 | 403 |
+| `DELETE /api/orders/999999` | `orders:delete` | 404 | 403 | 403 | 403 |
+| `GET /api/events` | `products:read` | 200 | 200 | 200 | 200 |
+| `POST /api/events` (порожнє тіло) | `products:create` | 400 | 403 | 403 | 403 |
+| `DELETE /api/events/999999` | `products:delete` | 404 | 403 | 403 | 403 |
+| `GET /api/payments` | `payments:read` | 200 | 403 | 403 | 403 |
+| `POST /api/payments/refund` | `payments:refund` | 404 | 403 | 403 | 403 |
+
+400 і 404 означають, що авторизацію пройдено і запит дійшов до контролера: порожнє тіло не проходить валідацію, а id 999999 не існує. Так права перевіряються без зміни даних.
+
+Додатково:
+- Без токена Gateway повертає 401.
+- Звичайний access token без RPT дає 403, бо permissions з'являються лише в RPT.
+- Keycloak відмовляє видати RPT (`403 access_denied`), коли роль не має жодного дозволу на resource server: guest для `orders-api`, а також manager, user і guest для `payments-api`.
+- Токен service account `orders.aggregator` містить client-роль `service-reader`, але не містить permissions, тому `GET /api/events` дає 403. Агрегатор платформи бере токен у IdentityServer (частина 2), а не тут.
+
 ## Запуск
 
 Потрібен Pulumi CLI і запущений AppHost: Keycloak на `http://localhost:8080`. Пароль адміністратора Keycloak генерує Aspire, він є в Dashboard: ресурс `keycloak` → Parameters.
@@ -27,6 +51,7 @@ pulumi login --local
 pulumi stack init dev
 pulumi config set --secret adminPassword <пароль admin з Aspire Dashboard>
 pulumi config set --secret testUserPassword <пароль тестових користувачів>
+pulumi config set temporaryPasswords false   # лише для скриптової перевірки: тимчасовий пароль блокує password grant
 pulumi preview
 pulumi up
 pulumi stack output
