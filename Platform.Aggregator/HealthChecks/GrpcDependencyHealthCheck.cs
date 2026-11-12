@@ -43,7 +43,8 @@ public static class DependencyHealthChecks
     {
         var clientName = service + "-health";
 #pragma warning disable EXTEXP0001   // RemoveAllResilienceHandlers is marked experimental
-        services.AddGrpcClient<Health.HealthClient>(clientName, o => o.Address = new Uri($"https://{service}"))
+        services.AddGrpcClient<Health.HealthClient>(clientName,
+                (sp, o) => o.Address = ResilientGrpcClients.GrpcAddress(sp.GetRequiredService<IConfiguration>(), service))
             .ConfigurePrimaryHttpMessageHandler(() => ResilientGrpcClients.CreateHandler(isDevelopment))
             .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001

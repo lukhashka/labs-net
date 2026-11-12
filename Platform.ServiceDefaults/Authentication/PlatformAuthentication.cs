@@ -49,11 +49,17 @@ public static class PlatformAuthentication
                 // the address comes from Aspire service discovery: services__identityserver__http__0
                 o.Authority = configuration["services:identityserver:http:0"] ?? configuration["IdentityServer:Authority"];
                 o.Audience = identityServerAudience;                       // name of the ApiResource: orders_api
-                o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+                o.RequireHttpsMetadata = RequireHttpsMetadata(builder);
                 o.MapInboundClaims = false;
                 o.TokenValidationParameters.ValidTypes = ["at+jwt"];       // access tokens only, not id tokens
             });
     }
+
+    // Metadata and keys of IdentityServer and Keycloak only over HTTPS, except Development and the Kubernetes cluster
+    // of Lab 10: there the providers answer on http://identityserver:8080 and http://keycloak:8080 inside the cluster,
+    // and the AppHost passes Auth__RequireHttpsMetadata=false in publish mode. The issuer is still checked.
+    public static bool RequireHttpsMetadata(IHostApplicationBuilder builder) =>
+        builder.Configuration.GetValue("Auth:RequireHttpsMetadata", !builder.Environment.IsDevelopment());
 
     // Shared by the Auth Service (it issues the tokens) and the services (they validate them)
     public static TokenValidationParameters AuthServiceValidation(IConfiguration configuration)

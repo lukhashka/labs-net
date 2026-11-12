@@ -12,11 +12,15 @@ configMapGenerator:
     - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
     - HTTP_PORTS=8080;8000
     - services__orders-api__http__0=http://orders-api:8080
+    - services__orders-api__grpc__0=orders-api:8081
     - services__catalog-api__http__0=http://catalog-api:8080
+    - services__catalog-api__grpc__0=catalog-api:8081
     - services__reviews-api__http__0=http://reviews-api:8080
+    - services__reviews-api__grpc__0=reviews-api:8081
     - services__aggregator__http__0=http://aggregator:8080
     - services__auth-api__http__0=http://auth-api:8080
     - services__payments-api__http__0=http://payments-api:8080
+    - Auth__RequireHttpsMetadata=false
     - services__identityserver__http__0=http://identityserver:8080
     - services__keycloak__http__0=http://keycloak:8080
     - ASPNETCORE_URLS=http://+:8080;

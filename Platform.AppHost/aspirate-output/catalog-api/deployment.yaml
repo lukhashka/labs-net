@@ -20,13 +20,15 @@ spec:
     spec:
       containers:
       - name: catalog-api
-        image: catalog-api:v1
+        image: catalog-api:v4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
           containerPort: 8080
         - name: https
           containerPort: 8443
+        - name: grpc
+          containerPort: 8081
         envFrom:
         - secretRef:
             name: platform-jwt

@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: aggregator
-        image: aggregator:v1
+        image: aggregator:v4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -33,6 +33,8 @@ spec:
             optional: true
         - configMapRef:
             name: aggregator-env
+        - secretRef:
+            name: aggregator-protected
         - secretRef:
             name: aggregator-secrets
       terminationGracePeriodSeconds: 180

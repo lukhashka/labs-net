@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: identityserver
-        image: identityserver:v1
+        image: identityserver:v4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
@@ -33,6 +33,8 @@ spec:
             optional: true
         - configMapRef:
             name: identityserver-env
+        - secretRef:
+            name: identityserver-protected
         - secretRef:
             name: identityserver-secrets
       terminationGracePeriodSeconds: 180

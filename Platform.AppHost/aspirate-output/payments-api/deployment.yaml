@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: payments-api
-        image: payments-api:v1
+        image: payments-api:v4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

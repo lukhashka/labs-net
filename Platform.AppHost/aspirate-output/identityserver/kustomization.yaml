@@ -1,4 +1,4 @@
-resources:
+﻿resources:
 - deployment.yaml
 - service.yaml
 
@@ -17,3 +17,6 @@ secretGenerator:
 - name: identityserver-secrets
   envs:
   - .identityserver.secrets
+- name: identityserver-protected
+  envs:
+  - .identityserver.protected.secrets

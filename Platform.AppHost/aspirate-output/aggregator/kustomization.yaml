@@ -1,4 +1,4 @@
-resources:
+﻿resources:
 - deployment.yaml
 - service.yaml
 
@@ -12,9 +12,13 @@ configMapGenerator:
     - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
     - HTTP_PORTS=8080
     - services__orders-api__http__0=http://orders-api:8080
+    - services__orders-api__grpc__0=orders-api:8081
     - services__catalog-api__http__0=http://catalog-api:8080
+    - services__catalog-api__grpc__0=catalog-api:8081
     - services__reviews-api__http__0=http://reviews-api:8080
+    - services__reviews-api__grpc__0=reviews-api:8081
     - Caching__Enabled=true
+    - Auth__RequireHttpsMetadata=false
     - services__identityserver__http__0=http://identityserver:8080
     - services__keycloak__http__0=http://keycloak:8080
     - ASPNETCORE_URLS=http://+:8080;
@@ -23,3 +27,6 @@ secretGenerator:
 - name: aggregator-secrets
   envs:
   - .aggregator.secrets
+- name: aggregator-protected
+  envs:
+  - .aggregator.protected.secrets

@@ -8,6 +8,9 @@
 # manifests at all: it comes from the Secret platform-jwt (deploy/k8s/README.md).
 param(
     [switch]$Build,
+    # A Kubernetes node keeps an image by its tag: with IfNotPresent a rebuilt image under the same tag is never
+    # pulled again, and the pods go on running the old code. So every build that changes the code gets a new tag.
+    [string]$Tag = "v4",
     [string]$StatePassword = $env:ASPIRATE_SECRET_PASSWORD
 )
 
@@ -22,9 +25,9 @@ $env:DOTNET_ROLL_FORWARD = "Major"
 
 $arguments = @(
     "aspirate", "generate", "--non-interactive",
-    "--launch-profile", "http",
+    "--aspire-manifest", "manifest.json",           # made and fixed below, not by aspirate
     "--image-pull-policy", "IfNotPresent",          # Docker Desktop: local images are visible to the cluster
-    "--container-image-tag", "v1",
+    "--container-image-tag", $Tag,
     "--output-format", "kustomize",
     "--include-dashboard", "false",
     "--secret-password", $StatePassword,
@@ -32,12 +35,28 @@ $arguments = @(
     "--parameter", "mongo-password=$(New-Secret)",
     "--parameter", "redis-password=$(New-Secret)",
     "--parameter", "messaging-password=$(New-Secret)",
-    "--parameter", "keycloak-password=$(New-Secret)"
+    "--parameter", "keycloak-password=$(New-Secret)",
+    "--parameter", "aggregator-client-secret=$(New-Secret 32)"
 )
 if (-not $Build) { $arguments += "--skip-build" }
 
 Push-Location $PSScriptRoot
 try {
+    # Aspire 13 puts the passwords of MongoDB and RabbitMQ into their connection strings through a resource of type
+    # annotated.string (the parameter encoded for a URI). aspirate 9.1 does not know that type and writes the text
+    # "{messaging-password-uri-encoded.value}" instead of the password, so the services get ACCESS_REFUSED.
+    # The script makes the manifest itself and points those references straight to the parameter. That is safe here:
+    # New-Secret gives letters and digits only, and the URI encoding does not change them.
+    dotnet run --project . --launch-profile http -- --publisher manifest --output-path manifest.json
+    if ($LASTEXITCODE -ne 0) { throw "the Aspire manifest was not made" }
+    $text = Get-Content manifest.json -Raw
+    $manifest = $text | ConvertFrom-Json
+    foreach ($resource in $manifest.resources.PSObject.Properties | Where-Object { $_.Value.type -eq "annotated.string" }) {
+        $text = $text.Replace("{$($resource.Name).value}", $resource.Value.value)
+        Write-Host "$($resource.Name): replaced by $($resource.Value.value)"
+    }
+    [IO.File]::WriteAllText((Join-Path $PWD "manifest.json"), $text, (New-Object Text.UTF8Encoding $false))
+
     dotnet @arguments
     if ($LASTEXITCODE -ne 0) { throw "aspirate generate failed" }
 
@@ -54,8 +73,18 @@ try {
         $name = $dir.Name
         $envFile = ".$name.protected.secrets"
         $moved | ForEach-Object { ($_ -replace $sensitive, '$1=$3').Trim() } | Set-Content (Join-Path $dir.FullName $envFile) -Encoding ascii
-        $kept = $lines | Where-Object { $_ -notmatch $sensitive }
-        $kept += @("", "secretGenerator:", "- name: $name-protected", "  envs:", "  - $envFile")
+        $kept = @($lines | Where-Object { $_ -notmatch $sensitive })
+        $item = @("- name: $name-protected", "  envs:", "  - $envFile")
+        # A project already has "secretGenerator:" (its connection strings). A second key of the same name would
+        # replace the first one in YAML and the connection strings would be lost, so the item joins that list.
+        $at = [Array]::IndexOf($kept, "secretGenerator:")
+        if ($at -lt 0) {
+            $kept += @("", "secretGenerator:") + $item
+        } else {
+            $end = $at + 1
+            while ($end -lt $kept.Count -and $kept[$end] -match '^(-|\s)') { $end++ }   # to the next top-level key
+            $kept = $kept[0..($end - 1)] + $item + $(if ($end -lt $kept.Count) { $kept[$end..($kept.Count - 1)] } else { @() })
+        }
         $kept | Set-Content $kustomization -Encoding utf8
 
         $workload = Get-ChildItem $dir.FullName -Include statefulset.yaml, deployment.yaml -Recurse | Select-Object -First 1
@@ -93,6 +122,9 @@ try {
     $leaks = Get-ChildItem aspirate-output -Recurse -Filter kustomization.yaml |
         Select-String -Pattern '^\s+- [A-Za-z0-9_]*(PASSWORD|PASS|SECRET|TOKEN|_KEY|Password|Secret|Token)[A-Za-z0-9_]*=' -CaseSensitive
     if ($leaks) { $leaks | ForEach-Object { Write-Warning "Plain secret in $($_.Path): $($_.Line.Split('=')[0].Trim())" }; exit 1 }
+    $duplicates = Get-ChildItem aspirate-output -Recurse -Filter kustomization.yaml |
+        Where-Object { @(Select-String -Path $_.FullName -Pattern '^secretGenerator:').Count -gt 1 }
+    if ($duplicates) { $duplicates | ForEach-Object { Write-Warning "Two secretGenerator keys in $($_.FullName)" }; exit 1 }
     Write-Host "Manifests are in aspirate-output, no plain secrets found."
 }
 finally {

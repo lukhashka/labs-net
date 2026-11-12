@@ -11,8 +11,7 @@ builder.AddPlatformAuthentication(identityServerAudience: "payments_api")
         {
             o.Audience = "payments-api";
             o.MapInboundClaims = false;
-            if (builder.Environment.IsDevelopment())
-                o.RequireHttpsMetadata = false;
+            o.RequireHttpsMetadata = PlatformAuthentication.RequireHttpsMetadata(builder);   // HTTP: Development, inside the cluster
         });
 builder.Services.AddPlatformAuthorization();
 

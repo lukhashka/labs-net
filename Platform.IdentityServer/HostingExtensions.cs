@@ -85,14 +85,24 @@ internal static class HostingExtensions
         var config = sp.GetRequiredService<ConfigurationDbContext>();
         await config.Database.MigrateAsync();
 
+        // Development: the known aggregator_secret, as in appsettings.Development.json of the Aggregator.
+        // Outside Development (Kubernetes, Lab 10) the AppHost passes a generated Clients__AggregatorSecret,
+        // the same value the Aggregator gets as IdentityServer__ClientSecret.
+        var aggregatorSecret = app.Configuration["Clients:AggregatorSecret"];
+        if (string.IsNullOrEmpty(aggregatorSecret))
+            aggregatorSecret = app.Environment.IsDevelopment()
+                ? "aggregator_secret"
+                : throw new InvalidOperationException("Clients:AggregatorSecret is not configured");
+        var clients = Config.Clients(aggregatorSecret).ToList();
+
         if (!await config.Clients.AnyAsync())
         {
             config.IdentityResources.AddRange(Config.IdentityResources.Select(r => r.ToEntity()));
             config.ApiScopes.AddRange(Config.ApiScopes.Select(s => s.ToEntity()));
             config.ApiResources.AddRange(Config.ApiResources.Select(r => r.ToEntity()));
-            config.Clients.AddRange(Config.Clients.Select(c => c.ToEntity()));
+            config.Clients.AddRange(clients.Select(c => c.ToEntity()));
             await config.SaveChangesAsync();
-            app.Logger.LogInformation("IdentityServer configuration stored: {Clients} clients", Config.Clients.Count());
+            app.Logger.LogInformation("IdentityServer configuration stored: {Clients} clients", clients.Count);
         }
 
         var users = sp.GetRequiredService<UserManager<ApplicationUser>>();

@@ -42,6 +42,11 @@ var jwtSecret = builder.AddParameter("jwt-secret",
 // The realm DevRealmDrivers, clients, roles and users are created by Pulumi: infra/keycloak.
 var keycloak = builder.AddKeycloak("keycloak", 8080, adminPassword: keycloakPassword)
     .WithDataVolume();
+// Lab 10: outside run mode Keycloak starts with "start" (production) and refuses plain HTTP without a certificate.
+// Inside the cluster the services call http://keycloak:8080; TLS would end at an ingress in front of the cluster.
+if (builder.ExecutionContext.IsPublishMode)
+    keycloak.WithEnvironment("KC_HTTP_ENABLED", "true")
+        .WithEnvironment("KC_HOSTNAME_STRICT", "false");
 
 // Lab 09, Part 1: own authentication service
 var auth = builder.AddProject<Projects.Auth_Api>("auth-api")
@@ -65,6 +70,7 @@ var identityServer = builder.AddProject<Projects.Platform_IdentityServer>("ident
 // so it validates the tokens of all three providers locally.
 var orders = builder.AddProject<Projects.Orders_Api>("orders-api", launchProfileName: "https")
     .WithPlatformReferences()
+    .WithClusterGrpcEndpoint()
     .WithReference(ordersDb).WaitFor(ordersDb)
     .WithReference(messaging).WaitFor(messaging)              // consumes Catalog events
     .WithTokenValidation(jwtSecret, identityServer, keycloak)
@@ -72,6 +78,7 @@ var orders = builder.AddProject<Projects.Orders_Api>("orders-api", launchProfile
 
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api", launchProfileName: "https")
     .WithPlatformReferences()
+    .WithClusterGrpcEndpoint()
     .WithReference(catalogDb).WaitFor(catalogDb)
     .WithReference(messaging).WaitFor(messaging)              // publishes events from its outbox
     .WithReference(redis).WaitFor(redis)
@@ -81,6 +88,7 @@ var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api", launchProf
 
 var reviews = builder.AddProject<Projects.Reviews_WebApi>("reviews-api", launchProfileName: "https")
     .WithPlatformReferences()
+    .WithClusterGrpcEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(messaging).WaitFor(messaging)              // consumes Catalog events
     .WithTokenValidation(jwtSecret, identityServer, keycloak)
@@ -103,6 +111,16 @@ var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WaitFor(identityServer)
     .WithHttpHealthCheck("/health", endpointName: "http");
 
+// Lab 10: in run mode both sides use the known aggregator_secret of Development (IdentityServer already stored its hash
+// in the volume). In Kubernetes the services run as Production, so the secret of the Aggregator client is a generated
+// parameter: aspirate-generate.ps1 gives it a random value, and the script moves it from the ConfigMap into a Secret.
+if (builder.ExecutionContext.IsPublishMode)
+{
+    var aggregatorClientSecret = builder.AddParameter("aggregator-client-secret", secret: true);
+    identityServer.WithEnvironment("Clients__AggregatorSecret", aggregatorClientSecret);
+    aggregator.WithEnvironment("IdentityServer__ClientSecret", aggregatorClientSecret);
+}
+
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithPlatformReferences()
     .WithHttpEndpoint(port: 5000, name: "public")
@@ -120,6 +138,20 @@ string cacheEnabled() => builder.Configuration["Benchmark:CacheEnabled"] ?? "tru
 
 internal static class TokenValidationExtensions
 {
+    // Lab 10: in Kubernetes there is no TLS inside the cluster. Without TLS Kestrel cannot serve HTTP/1.1 (REST, probes)
+    // and HTTP/2 (gRPC) on one port, so a service with gRPC gets a second endpoint "grpc" on 8081, HTTP/2 only.
+    // The Aggregator finds it as services__<name>__grpc__0. In run mode nothing changes: gRPC goes over https.
+    public static IResourceBuilder<ProjectResource> WithClusterGrpcEndpoint(this IResourceBuilder<ProjectResource> project)
+    {
+        if (!project.ApplicationBuilder.ExecutionContext.IsPublishMode)
+            return project;
+        return project
+            .WithHttpEndpoint(name: "grpc", targetPort: 8081)
+            .WithEnvironment("Kestrel__Endpoints__Http__Url", "http://+:8080")
+            .WithEnvironment("Kestrel__Endpoints__Grpc__Url", "http://+:8081")
+            .WithEnvironment("Kestrel__Endpoints__Grpc__Protocols", "Http2");
+    }
+
     // Keycloak is not awaited: it starts slowly and is needed only when a Keycloak token arrives.
     // Lab 10: the signing key goes into the environment only when the AppHost runs the platform. In publish mode
     // (aspirate) it is left out, so it never lands in the generated manifests; Kubernetes gets it from the Secret platform-jwt
@@ -130,6 +162,8 @@ internal static class TokenValidationExtensions
     {
         if (project.ApplicationBuilder.ExecutionContext.IsRunMode)
             project.WithEnvironment("Jwt__SecretKey", jwtSecret);
+        else
+            project.WithEnvironment("Auth__RequireHttpsMetadata", "false");   // http://identityserver, http://keycloak inside the cluster
         return project.WithReference(identityServer).WithReference(keycloak);
     }
 

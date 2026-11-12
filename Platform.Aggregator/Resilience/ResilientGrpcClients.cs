@@ -16,7 +16,7 @@ public static class ResilientGrpcClients
         policy.EnsureConsistent();
 
         var client = services
-            .AddGrpcClient<TClient>(o => o.Address = new Uri($"https://{policy.Service}"))
+            .AddGrpcClient<TClient>((sp, o) => o.Address = GrpcAddress(sp.GetRequiredService<IConfiguration>(), policy.Service))
             .ConfigureChannel(channel => channel.ServiceConfig = new ServiceConfig
             {
                 MethodConfigs =
@@ -81,6 +81,16 @@ public static class ResilientGrpcClients
 
         return client;
     }
+
+    // Aspire run mode: https://{service}; TLS negotiates HTTP/2 (ALPN), so REST and gRPC share the https endpoint.
+    // Kubernetes (Lab 10): there is no TLS inside the cluster, and without TLS Kestrel cannot serve HTTP/1.1 and HTTP/2
+    // on one port. The AppHost gives the service a second, HTTP/2-only endpoint "grpc" (services__orders-api__grpc__0).
+    // "_grpc." names that endpoint for service discovery. A plain "http://orders-api:8081" does not work: service
+    // discovery resolves the host "orders-api" by the http endpoint and the call ends on 8080 (HTTP_1_1_REQUIRED).
+    public static Uri GrpcAddress(IConfiguration configuration, string service) =>
+        string.IsNullOrEmpty(configuration[$"services:{service}:grpc:0"])
+            ? new Uri($"https://{service}")
+            : new Uri($"http://_grpc.{service}");
 
     public static SocketsHttpHandler CreateHandler(bool isDevelopment)
     {

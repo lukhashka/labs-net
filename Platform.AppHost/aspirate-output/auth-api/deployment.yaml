@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: auth-api
-        image: auth-api:v1
+        image: auth-api:v4
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

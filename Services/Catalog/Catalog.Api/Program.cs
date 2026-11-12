@@ -71,8 +71,7 @@ builder.AddPlatformAuthentication(identityServerAudience: "products_api")
         {
             o.Audience = "products-api";
             o.MapInboundClaims = false;
-            if (builder.Environment.IsDevelopment())
-                o.RequireHttpsMetadata = false;            // Keycloak runs over HTTP in development
+            o.RequireHttpsMetadata = PlatformAuthentication.RequireHttpsMetadata(builder);   // HTTP: Development, inside the cluster
         });
 builder.Services.AddPlatformAuthorization();
 

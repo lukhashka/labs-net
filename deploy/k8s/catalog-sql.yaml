@@ -1,5 +1,17 @@
 # The database of catalog-api for the manual deployment (in Part 1 aspirate creates its own "sql").
-# Demo only: emptyDir loses the data with the pod; a real database uses a StatefulSet with a PersistentVolumeClaim.
+# The data lives in a PersistentVolumeClaim: a new pod of SQL Server (scale 0 -> 1, a crash) gets the same database back.
+# With emptyDir the new pod would start with an empty server and catalog-api would stay not ready.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: catalog-sql-data
+  labels: { app: catalog-sql, app.kubernetes.io/part-of: campustix }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +19,8 @@ metadata:
   labels: { app: catalog-sql, app.kubernetes.io/part-of: campustix }
 spec:
   replicas: 1
+  strategy:
+    type: Recreate          # one volume ReadWriteOnce: the old pod stops before the new one starts
   selector:
     matchLabels: { app: catalog-sql }
   template:
@@ -32,7 +46,8 @@ spec:
             - { name: data, mountPath: /var/opt/mssql }
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: catalog-sql-data
 ---
 apiVersion: v1
 kind: Service

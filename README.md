@@ -422,18 +422,21 @@ Keycloak запускається через Aspire (`AddKeycloak("keycloak", 80
 
 ### Частина 1. Aspir8
 
-aspirate 9.1.0 встановлено як локальний інструмент репозиторію (`dotnet-tools.json`, `dotnet tool restore`). Генерацію запускає скрипт `Platform.AppHost/aspirate-generate.ps1`, результат лежить у `Platform.AppHost/aspirate-output`: 8 Deployment для проєктів, 5 StatefulSet (SQL Server, MongoDB, Redis, RabbitMQ, Keycloak), 13 Service, 13 ConfigMap і 11 Secret.
+aspirate 9.1.0 встановлено як локальний інструмент репозиторію (`dotnet-tools.json`, `dotnet tool restore`). Генерацію запускає скрипт `Platform.AppHost/aspirate-generate.ps1`, результат лежить у `Platform.AppHost/aspirate-output`: 8 Deployment для проєктів, 5 StatefulSet (SQL Server, MongoDB, Redis, RabbitMQ, Keycloak), 13 Service, 13 ConfigMap і 13 Secret.
 
 ```bash
 dotnet tool restore
 cd Platform.AppHost
-./aspirate-generate.ps1 -Build          # образи проєктів + маніфести
+./aspirate-generate.ps1 -Build          # образи проєктів з тегом v4 + маніфести (-Tag v5 для нового коду)
 kubectl create secret generic platform-jwt --from-literal=Jwt__SecretKey="$(openssl rand -hex 32)"
 dotnet aspirate apply                   # або kubectl apply -k ./aspirate-output
 kubectl get pods,services
 kubectl port-forward service/gateway 8080:8080
 dotnet aspirate destroy                 # перед частиною 2
+kubectl delete pvc --all                # томи баз: наступна генерація дає нові паролі
 ```
+
+Перевірено в Docker Desktop Kubernetes (kind, v1.36): усі 13 подів у стані Running. Через `kubectl port-forward` і Gateway працюють Catalog, Orders, Reviews, Payments (403 для User), Auth (`/auth/register` 201, хибний login 401, `/users` 200 для Admin) і обидва агрегати Aggregator (200, без попереджень). Перші ~60 с сервіси з SQL Server перезапускаються 1–3 рази: на відміну від `WaitFor` в Aspire, маніфести aspirate не чекають, поки база підніметься, і Kubernetes перезапускає под, доки SQL не стане доступним.
 
 Що довелося врахувати:
 
@@ -442,6 +445,13 @@ dotnet aspirate destroy                 # перед частиною 2
 - **Паролі контейнерів.** Їх зроблено явними секретними параметрами з тими самими іменами, що згенерував Aspire, тож локальні томи далі працюють. Для MongoDB, Redis, RabbitMQ і Keycloak aspirate однаково пише пароль у ConfigMap. Скрипт переносить ці значення в локальні файли `.<ресурс>.protected.secrets` (є в `.gitignore`), додає `secretGenerator` і `secretRef` та перевіряє, що в `kustomization.yaml` не лишилося жодного пароля.
 - **Ключ JWT.** У режимі публікації AppHost не передає ключ JWT (`IsRunMode`), а кожен Deployment отримує його з Secret `platform-jwt`, який створює `kubectl`. Без ключа сервіс поза Development не стартує, тому відомого запасного ключа в Production немає.
 - **Що не потрапляє в git.** Рядки підключення aspirate тримає зашифрованими в `aspirate-state.json`, а під час `apply` записує їх у `.secrets`. Обидва лишаються поза git.
+- **Паролі MongoDB і RabbitMQ у рядках підключення.** Aspire 13 вставляє їх через ресурс `annotated.string` (пароль, закодований для URI). aspirate 9.1 такого типу не знає й записував у рядок підключення текст `{messaging-password-uri-encoded.value}` замість пароля, і сервіси отримували `ACCESS_REFUSED`. Тепер скрипт сам створює `manifest.json` і замінює ці посилання параметром. Згенеровані паролі складаються лише з літер і цифр, тому кодування для URI їх не змінює.
+- **Keycloak поза run mode** стартує командою `start` (production) і без сертифіката не приймає HTTP. У publish mode AppHost додає `KC_HTTP_ENABLED=true` і `KC_HOSTNAME_STRICT=false`: усередині кластера сервіси звертаються до `http://keycloak:8080`, а TLS мав би завершуватися на ingress.
+- **Один `secretGenerator` на `kustomization.yaml`.** Другий ключ з тим самим ім'ям у YAML замінює перший, і в IdentityServer зник Secret з рядком підключення (`Login failed for user 'sa'`). Скрипт додає свій Secret у наявний список і перевіряє, що ключ `secretGenerator:` у кожному файлі один.
+- **gRPC без TLS.** Локально REST і gRPC ділять https-endpoint, бо HTTP/2 узгоджується через TLS (ALPN). У кластері TLS немає, а без нього Kestrel не обслуговує HTTP/1.1 і HTTP/2 на одному порту. `WithClusterGrpcEndpoint()` у publish mode додає Orders, Catalog і Reviews другий endpoint `grpc` на 8081 (лише HTTP/2). Aggregator звертається до нього як `http://_grpc.orders-api`. Адреса `http://orders-api:8081` не працює: service discovery підставляє endpoint `http` (порт 8080), і сервер відповідає `HTTP_1_1_REQUIRED`.
+- **Секрет клієнта Aggregator.** У кластері сервіси працюють як Production, тому `aggregator_secret` з `appsettings.Development.json` недоступний. AppHost у publish mode передає згенерований параметр `aggregator-client-secret` у IdentityServer (`Clients__AggregatorSecret`) і в Aggregator (`IdentityServer__ClientSecret`).
+- **Метадані IdentityServer і Keycloak по HTTP.** Поза Development `JwtBearer` вимагає HTTPS для `/.well-known`. У кластері провайдери доступні лише як `http://identityserver:8080` і `http://keycloak:8080`, тому AppHost передає `Auth__RequireHttpsMetadata=false`. Перевірка issuer і підпису лишається.
+- **Тег образу.** Вузол Kubernetes зберігає образ за тегом, тож з `IfNotPresent` перезібраний `catalog-api:v1` не потрапить у кластер, і под далі запускатиме старий код. Тому кожна збірка зі зміненим кодом отримує новий тег (`-Tag`).
 
 ### Частина 2–3. Ручні маніфести
 
@@ -451,6 +461,12 @@ Deployment має 2 репліки, `imagePullPolicy: IfNotPresent`, liveness `/
 
 Catalog запускається й без RabbitMQ: тоді події лишаються в outbox і будуть опубліковані, коли брокер з'явиться. Це потрібно для ручного розгортання лише з SQL Server.
 
+Перевірено в кластері:
+- 2 репліки `catalog-api` і 2 репліки `gateway` у стані Ready. Запит через `kubectl port-forward service/gateway` без токена дає 401, з токеном 200 (події з бази).
+- Після `kubectl delete pod -l app=catalog-api` Deployment за ~5 с створює нові поди.
+- Після `kubectl scale deploy/catalog-sql --replicas=0` поди `catalog-api` за ~55 с переходять у `0/1 Running`, але не перезапускаються (лічильник restarts не змінився). Service лишається без endpoints, Gateway відповідає 502. Коли SQL повертається, поди за ~20 с знову готові, запит дає 200.
+- На першому старті один под `catalog-api` раз перезапустився: SQL Server ще не встиг відповісти на `CREATE DATABASE`, і Kubernetes перезапустив контейнер.
+
 | | aspirate | вручну |
 |---|---|---|
 | Ресурси | уся платформа з AppHost | лише `catalog-api`, `gateway`, `catalog-sql` |
@@ -458,7 +474,7 @@ Catalog запускається й без RabbitMQ: тоді події лиш�
 | Секрети | зашифрований state, `.secrets` під час apply | `kubectl create secret` |
 | Probes | немає | startup, liveness, readiness |
 | Репліки, ресурси | 1 репліка, без лімітів | 2 репліки, requests і limits |
-| Бази | StatefulSet з volumeClaimTemplates | Deployment з `emptyDir` (демо) |
+| Бази | StatefulSet з volumeClaimTemplates | Deployment з PersistentVolumeClaim і стратегією `Recreate` |
 
 ---
 

@@ -8,7 +8,7 @@
 | `catalog-api-service.yaml` | ClusterIP `catalog-api`: порт 80 → 8080, selector `app: catalog-api` |
 | `gateway-deployment.yaml`, `gateway-service.yaml` | те саме для YARP Gateway |
 | `configmap.yaml` | `gateway-config` (адреси сервісів у форматі `services__<ім'я>__http__0`) і `catalog-config` |
-| `catalog-sql.yaml` | SQL Server для Каталогу (демо, `emptyDir`) |
+| `catalog-sql.yaml` | SQL Server для Каталогу: дані в PersistentVolumeClaim `catalog-sql-data`, стратегія `Recreate` |
 
 Секретів у цих файлах немає: їх створюють команди нижче, а Deployment підключає їх через `envFrom` → `secretRef`.
 

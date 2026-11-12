@@ -11,6 +11,8 @@ configMapGenerator:
     - KC_BOOTSTRAP_ADMIN_USERNAME=admin
     - KC_HEALTH_ENABLED=true
     - KC_FEATURES=opentelemetry
+    - KC_HTTP_ENABLED=true
+    - KC_HOSTNAME_STRICT=false
 
 
 secretGenerator:

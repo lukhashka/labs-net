@@ -33,7 +33,7 @@ public static class Config
         new("payments_api", "Payments service")        // no scope is given to any client: payments are admin-only (Keycloak)
     ];
 
-    public static IEnumerable<Client> Clients =>
+    public static IEnumerable<Client> Clients(string aggregatorSecret) =>
     [
         // Postman: Authorization Code for a user in a browser; a confidential client with a secret
         new Client
@@ -59,7 +59,7 @@ public static class Config
             ClientId = "aggregator_service",
             ClientName = "Platform Aggregator",
             AllowedGrantTypes = GrantTypes.ClientCredentials,
-            ClientSecrets = { new Secret("aggregator_secret".Sha256()) },
+            ClientSecrets = { new Secret(aggregatorSecret.Sha256()) },   // only the hash is stored
             AllowedScopes = { "orders.read", "products.read", "reviews.read" }
         },
 
